@@ -1,0 +1,28 @@
+name: fpl_wager_admin
+description: "FPLwager admin - manage users, pools, wallets and payments."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+# The admin app uses the same packages as the main FPLwager app. "any" lets
+# pub pick versions that suit your Flutter SDK. To use exactly the versions
+# the main app is on, copy the version numbers for these six packages from
+# the main app's pubspec.yaml (see README.md).
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: any
+  go_router: any
+  dio: any
+  flutter_secure_storage: any
+  intl: any
+  uuid: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
