@@ -117,6 +117,7 @@ class AdminResourceScreen extends ConsumerWidget {
       'wagers' => _createWager(context, ref),
       'settings' => _putSetting(context, ref),
       'notifications' => sendNotificationDialog(context, ref),
+      'notification-subscriptions' => _notificationEmailDialog(context, ref),
       _ => Future<void>.value(),
     };
   }
@@ -153,6 +154,9 @@ String _title(String resource, Map<String, Object?> record) {
     'users' || 'wallets' => firstValue(record, const ['full_name', 'email']),
     'wagers' => firstValue(record, const ['name']),
     'payments' => firstValue(record, const ['reference']),
+    'withdrawals' =>
+      '${_moneyOf(record['amount_cents'])} · ${firstValue(record, const ['full_name', 'email'])}',
+    'notification-subscriptions' => firstValue(record, const ['email']),
     'transactions' => firstValue(record, const ['description', 'kind']),
     'challenges' =>
       '${firstValue(record, const ['challenger_name'])} vs ${firstValue(record, const ['opponent_name', 'opponent_team_id'])}',
@@ -189,10 +193,23 @@ String _subtitle(String resource, Map<String, Object?> record) {
         _moneyOf(record['amount_cents']),
         firstValue(record, const ['credential_mode']),
       ],
+    'withdrawals' => [
+        firstValue(record, const ['email']),
+        _bankOf(record['bank_details']),
+        _dateOf(record['created_at']),
+        if (firstValue(record, const ['last_error']).isNotEmpty)
+          'Provider: ${firstValue(record, const ['last_error'])}',
+      ],
+    'notification-subscriptions' => [
+        'Withdrawal requests ${record['on_withdraw_request'] == true ? 'on' : 'off'}',
+        'Pool ended ${record['on_pool_ended'] == true ? 'on' : 'off'}',
+      ],
     'transactions' => [
         firstValue(record, const ['email']),
         firstValue(record, const ['kind']),
         _moneyOf(record['amount_cents']),
+        // A withdrawal's entry records the account the money was sent to.
+        _bankOf(record['meta'] is Map ? (record['meta']! as Map)['bank_details'] : null),
       ],
     'challenges' => [
         'GW${firstValue(record, const ['gameweek'])}',
@@ -227,6 +244,21 @@ String _subtitle(String resource, Map<String, Object?> record) {
 
 String _moneyOf(Object? cents) => cents is num ? money(cents.toInt()) : '';
 
+/// "Access Bank 0123456789 (CHRIS OKORO)" from a withdrawal's bank details,
+/// or '' when there are none.
+String _bankOf(Object? details) {
+  if (details is! Map) return '';
+  final bank = '${details['bank_name'] ?? ''}'.trim();
+  final number = '${details['account_number'] ?? ''}'.trim();
+  final name = '${details['account_name'] ?? ''}'.trim();
+  if (number.isEmpty) return '';
+  final account = bank.isEmpty ? number : '$bank $number';
+  return name.isEmpty ? account : '$account ($name)';
+}
+
+/// How a status reads to a person: "pending_approval" → "pending approval".
+String _readable(String status) => status.replaceAll('_', ' ');
+
 /// "2026-10-03 14:05" from an ISO timestamp, in the device's time zone.
 String _dateOf(Object? value) {
   final parsed = value is String ? DateTime.tryParse(value) : null;
@@ -238,7 +270,7 @@ String _dateOf(Object? value) {
 }
 
 String _pill(Map<String, Object?> record) =>
-    firstValue(record, const ['status', 'outcome']);
+    _readable(firstValue(record, const ['status', 'outcome']));
 
 class _RecordCard extends StatelessWidget {
   const _RecordCard({
@@ -333,9 +365,33 @@ List<_RecordAction> _actionsFor(String resource, Map<String, Object?> record) {
     case 'wagers':
       return [
         if (status == 'draft') _action('approve', 'Approve'),
+        // A locked pool can be finished by hand once FPL has finalised its
+        // gameweek; the worker does the same on its own every few minutes.
+        if (status == 'locked' || status == 'scoring')
+          _action('settle', 'Settle now'),
         _action('members', 'Entries'),
         _action('edit', 'Edit'),
-        _action('status', 'Change status'),
+        // A settled pool has paid out; its status is final.
+        if (status != 'settled') _action('status', 'Change status'),
+        _action('delete', 'Delete', destructive: true),
+      ];
+    case 'withdrawals':
+      // The provider has acknowledged the transfer once it has reported a
+      // status for it. Until then an approved request can be sent again.
+      final acknowledged = '${record['provider_status'] ?? ''}'.isNotEmpty;
+      return [
+        if (status == 'pending_approval') ...[
+          _action('approve', 'Approve and pay'),
+          _action('reject', 'Reject', destructive: true),
+        ],
+        if (status == 'approved' && !acknowledged)
+          _action('approve', 'Retry transfer'),
+        if (status == 'approved' || status == 'successful' || status == 'failed')
+          _action('verify', 'Check status'),
+      ];
+    case 'notification-subscriptions':
+      return [
+        _action('edit', 'Edit'),
         _action('delete', 'Delete', destructive: true),
       ];
     case 'wallets':
@@ -434,6 +490,25 @@ Future<void> _perform(
     );
     return;
   }
+  if (pressed == 'wagers/settle') {
+    final id = '${record['id']}';
+    final confirmed = await confirmAdminAction(
+      context,
+      title: 'Settle $name now?',
+      message: 'Every entry is scored from FPL, the winners are paid into '
+          'their wallets and emailed, and the pool is closed for good. It '
+          'only works once FPL has finalised the gameweek.',
+      confirmLabel: 'Settle pool',
+    );
+    if (!confirmed || !context.mounted) return;
+    await runAdminActionForMessage(
+      context,
+      ref,
+      action: (repository) => repository.settleWager(id),
+      refresh: const ['wagers', 'wallets', 'transactions', 'notifications'],
+    );
+    return;
+  }
   if (pressed == 'wagers/members') {
     await showDialog<void>(
       context: context,
@@ -484,6 +559,67 @@ Future<void> _perform(
       userId: '${record['user_id']}',
       userLabel: firstValue(record, const ['full_name', 'email']),
       credit: action == 'add',
+    );
+    return;
+  }
+
+  // ── Withdrawals ──────────────────────────────────────────────────────
+  if (pressed == 'withdrawals/approve') {
+    final id = '${record['id']}';
+    final provider = '${record['provider'] ?? 'the payment provider'}';
+    final confirmed = await confirmAdminAction(
+      context,
+      title: 'Pay ${_moneyOf(record['amount_cents'])}?',
+      message: 'To ${_bankOf(record['bank_details'])}.\n\n'
+          'The money is sent from your $provider balance to this bank '
+          'account. A transfer that has gone through cannot be taken back '
+          'from here.',
+      confirmLabel: 'Approve and pay',
+    );
+    if (!confirmed || !context.mounted) return;
+    await runAdminActionForMessage(
+      context,
+      ref,
+      action: (repository) => repository.approveWithdrawal(id),
+      refresh: const ['withdrawals', 'wallets', 'transactions'],
+    );
+    return;
+  }
+  if (pressed == 'withdrawals/reject') {
+    await _rejectWithdrawal(context, ref, record);
+    return;
+  }
+  if (pressed == 'withdrawals/verify') {
+    final id = '${record['id']}';
+    await runAdminActionForMessage(
+      context,
+      ref,
+      action: (repository) => repository.verifyWithdrawal(id),
+      refresh: const ['withdrawals', 'wallets', 'transactions'],
+    );
+    return;
+  }
+
+  // ── Notification emails ──────────────────────────────────────────────
+  if (pressed == 'notification-subscriptions/edit') {
+    await _notificationEmailDialog(context, ref, record: record);
+    return;
+  }
+  if (pressed == 'notification-subscriptions/delete') {
+    final id = '${record['id']}';
+    final confirmed = await confirmAdminAction(
+      context,
+      title: 'Remove $name?',
+      message: 'This address will no longer be emailed about anything.',
+      confirmLabel: 'Remove',
+    );
+    if (!confirmed || !context.mounted) return;
+    await runAdminAction(
+      context,
+      ref,
+      action: (repository) => repository.deleteNotificationEmail(id),
+      refresh: const ['notification-subscriptions'],
+      success: '$name was removed.',
     );
     return;
   }
@@ -644,6 +780,12 @@ class _PoolEntriesDialog extends ConsumerWidget {
                           subtitle: Text(
                             [
                               firstValue(member, const ['status']),
+                              // Filled in when the pool is settled.
+                              if (member['rank'] != null)
+                                '${_ordinal(member['rank'])} · ${member['points']} pts',
+                              if (member['payout_cents'] is num &&
+                                  (member['payout_cents']! as num) > 0)
+                                'won ${_moneyOf(member['payout_cents'])}',
                               if (member['entry_id'] != null)
                                 'FPL ID ${member['entry_id']}',
                               if (member['team_name'] != null)
@@ -695,6 +837,168 @@ class _PoolEntriesDialog extends ConsumerWidget {
     );
     if (done) ref.invalidate(adminWagerMembersProvider(poolId));
   }
+}
+
+/// "1st", "2nd", "11th" from a rank.
+String _ordinal(Object? rank) {
+  if (rank is! num) return '';
+  final n = rank.toInt();
+  final teen = n % 100 >= 11 && n % 100 <= 13;
+  final suffix = teen
+      ? 'th'
+      : switch (n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', _ => 'th' };
+  return '$n$suffix';
+}
+
+/// Rejects a withdrawal request. The reason is optional; when given, the
+/// user sees it in the app and in their email.
+Future<void> _rejectWithdrawal(
+  BuildContext context,
+  WidgetRef ref,
+  Map<String, Object?> record,
+) async {
+  final id = '${record['id']}';
+  final reason = TextEditingController();
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Reject ${_moneyOf(record['amount_cents'])}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${firstValue(record, const ['full_name', 'email'])} gets the '
+              'money back in their wallet and is told by email.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: reason,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                helperText: 'Shown to the user',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Reject'),
+        ),
+      ],
+    ),
+  );
+  final why = reason.text.trim();
+  reason.dispose();
+  if (accepted != true || !context.mounted) return;
+  await runAdminActionForMessage(
+    context,
+    ref,
+    action: (repository) => repository.rejectWithdrawal(id, why),
+    refresh: const ['withdrawals', 'wallets', 'transactions'],
+  );
+}
+
+/// Adds a notification email, or edits one when [record] is given: the
+/// address and which events it is emailed about.
+Future<void> _notificationEmailDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  Map<String, Object?>? record,
+}) async {
+  final id = record == null ? null : '${record['id']}';
+  final email = TextEditingController(text: '${record?['email'] ?? ''}');
+  // A new address starts with both alerts on; one that hears about nothing
+  // would be pointless. An existing one keeps what it has.
+  var onWithdrawRequest = record == null || record['on_withdraw_request'] == true;
+  var onPoolEnded = record == null || record['on_pool_ended'] == true;
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: Text(id == null ? 'Add notification email' : 'Edit notification email'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: email,
+                autofocus: id == null,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Email address'),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Withdrawal requests'),
+                subtitle: const Text('When a user asks to withdraw money'),
+                value: onWithdrawRequest,
+                onChanged: (value) => setState(() => onWithdrawRequest = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Pool ended'),
+                subtitle: const Text('When a pool is settled or cancelled'),
+                value: onPoolEnded,
+                onChanged: (value) => setState(() => onPoolEnded = value),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(id == null ? 'Add' : 'Save'),
+          ),
+        ],
+      ),
+    ),
+  );
+  final address = email.text.trim().toLowerCase();
+  email.dispose();
+  if (accepted != true || !context.mounted) return;
+  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(address)) {
+    AppNotice.error(context, 'Enter a valid email address.');
+    return;
+  }
+  await runAdminAction(
+    context,
+    ref,
+    action: (repository) => id == null
+        ? repository.createNotificationEmail(
+            email: address,
+            onWithdrawRequest: onWithdrawRequest,
+            onPoolEnded: onPoolEnded,
+          )
+        : repository.updateNotificationEmail(
+            id,
+            email: address,
+            onWithdrawRequest: onWithdrawRequest,
+            onPoolEnded: onPoolEnded,
+          ),
+    refresh: const ['notification-subscriptions'],
+    success: id == null ? '$address was added.' : '$address was updated.',
+  );
 }
 
 Future<void> _createUser(BuildContext context, WidgetRef ref) async {
@@ -1003,12 +1307,13 @@ Future<void> _changeWagerStatus(
               builder: (context, value, _) => DropdownButtonFormField<String>(
                 initialValue: value,
                 decoration: const InputDecoration(labelText: 'Pool status'),
+                // "settled" is not offered: a pool is settled by scoring
+                // and paying it (Settle now, or the worker), not by a label.
                 items: const [
                   'draft',
                   'open',
                   'locked',
                   'scoring',
-                  'settled',
                   'cancelled',
                 ]
                     .map((item) => DropdownMenuItem(value: item, child: Text(item)))
@@ -1021,7 +1326,8 @@ Future<void> _changeWagerStatus(
             const SizedBox(height: 12),
             const Text(
               'Open approves a draft pool. Cancelled refunds every paid '
-              'entry.',
+              'entry. A locked pool is settled and paid automatically once '
+              'FPL finalises its gameweek, or with Settle now.',
             ),
           ],
         ),

@@ -45,9 +45,14 @@ class AdminActionController extends AsyncNotifier<void> {
   @override
   Future<void> build() async {}
 
+  ///
+  /// [refreshOnError] reloads the lists in [refresh] even when the action
+  /// fails. A bank transfer the provider refused still changes what the
+  /// withdrawal shows, so those lists must not be left stale.
   Future<Object?> run(
     Future<void> Function(AdminRepository repository) action, {
     List<String> refresh = const [],
+    bool refreshOnError = false,
   }) async {
     state = const AsyncLoading();
     final result = await AsyncValue.guard<void>(
@@ -56,7 +61,15 @@ class AdminActionController extends AsyncNotifier<void> {
     // The outcome is returned to the caller to show; this provider only
     // tracks whether something is in flight.
     state = const AsyncData(null);
-    if (result.hasError) return result.error;
+    if (result.hasError) {
+      if (refreshOnError) {
+        for (final resource in refresh) {
+          ref.invalidate(adminCollectionProvider(resource));
+        }
+        ref.invalidate(adminDashboardProvider);
+      }
+      return result.error;
+    }
 
     for (final resource in refresh) {
       ref.invalidate(adminCollectionProvider(resource));

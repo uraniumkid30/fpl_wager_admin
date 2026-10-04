@@ -45,6 +45,10 @@ class ApiClient {
     Map<String, Object?>? data,
     String? idempotencyKey,
     bool allowRefresh = true,
+
+    /// How long to wait for the answer, when the default is too short: a
+    /// call that makes the server wait on a payment provider or on FPL.
+    Duration? receiveTimeout,
   }) =>
       _request(
         () => _dio.post<Object?>(
@@ -54,6 +58,7 @@ class ApiClient {
             headers: idempotencyKey == null
                 ? null
                 : {'Idempotency-Key': idempotencyKey},
+            receiveTimeout: receiveTimeout,
           ),
         ),
         allowRefresh: allowRefresh,

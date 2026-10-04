@@ -61,13 +61,15 @@ user** a superadmin can then create more administrators.
 | Section | What you can do |
 |---|---|
 | Users | Add a user, edit name / phone / status / role, add or deduct money, send a notification, delete permanently |
-| Pools | Create, **approve** pools users created, edit, change status, see and remove entries, delete |
+| Pools | Create, **approve** pools users created, edit, change status, **settle now**, see entries (with rank, points and winnings once settled) and remove them, delete |
 | Wallets | See balances, **add money** or deduct it (with a reason) |
+| Withdrawals | **Approve and pay** a request, **reject** it (reason optional), check a transfer's status |
 | Payments | Re-verify with the provider, delete a record |
 | Transactions | The ledger, read-only |
 | Head to head | View and delete challenges |
 | FPL teams | View linked teams, unlink one |
 | Notifications | Send a message to a user, delete one |
+| Notification emails | Add, edit and delete the addresses emailed about withdrawal requests and finished pools |
 | System settings | Create, edit and delete settings |
 | Gameweeks | The FPL calendar, read-only |
 | FPL sign-ins | Everything FPL returned at each sign-in (tokens removed) |
@@ -75,6 +77,35 @@ user** a superadmin can then create more administrators.
 
 The football icon at the top of the dashboard opens **My FPL team**, where an
 administrator links their own FPL team by its ID.
+
+### Withdrawals
+
+A user's request arrives as **pending approval**; the money has already left
+their wallet and is held.
+
+- **Approve and pay** asks the payment provider (Paystack or Korapay) to send
+  the money to the bank account on the request. The request becomes
+  **approved** while the transfer is in progress, then **successful**,
+  **failed** or **reversed**. Failed and reversed transfers return the money
+  to the user's wallet.
+- **Reject** returns the money straight away. The reason is optional; the user
+  sees it.
+- If the provider refuses the transfer (for example, not enough balance) the
+  request goes back to pending approval and the provider's message is shown on
+  the record.
+- **Check status** asks the provider for the latest state. The result normally
+  arrives on its own through the provider's webhook.
+
+The user is emailed when a withdrawal is paid, fails, is reversed or is
+rejected.
+
+### Settling pools
+
+Nothing needs to be done by hand. Every ten minutes the server looks for
+locked pools whose gameweek FPL has finalised, scores each entry (gameweek
+points after transfer hits), pays the winners and emails them. **Settle now**
+does the same immediately for one pool. A pool with fewer than two paid
+entries is cancelled and refunded instead.
 
 ### What deleting does
 

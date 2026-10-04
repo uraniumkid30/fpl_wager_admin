@@ -25,10 +25,12 @@ const adminResources = <String, AdminResourceDefinition>{
   ),
   'wagers': (
     label: 'Pools',
-    description: 'Approve, create, edit, cancel and delete pools',
+    description: 'Approve, create, edit, settle, cancel and delete pools',
     icon: Icons.emoji_events_outlined,
     createLabel: 'Create pool',
-    note: 'Cancelling or deleting an unsettled pool refunds every entry.',
+    note: 'Locked pools are settled and paid automatically once FPL '
+        'finalises the gameweek. Cancelling or deleting an unsettled pool '
+        'refunds every entry.',
   ),
   'wallets': (
     label: 'Wallets',
@@ -36,6 +38,14 @@ const adminResources = <String, AdminResourceDefinition>{
     icon: Icons.account_balance_wallet_outlined,
     createLabel: null,
     note: 'Every change is written to the ledger and the audit trail.',
+  ),
+  'withdrawals': (
+    label: 'Withdrawals',
+    description: 'Approve or reject withdrawal requests',
+    icon: Icons.north_east_rounded,
+    createLabel: null,
+    note: 'Approving sends the money to the user\'s bank through the payment '
+        'provider. Rejecting returns it to their wallet.',
   ),
   'payments': (
     label: 'Payments',
@@ -71,6 +81,13 @@ const adminResources = <String, AdminResourceDefinition>{
     icon: Icons.notifications_outlined,
     createLabel: 'Send notification',
     note: null,
+  ),
+  'notification-subscriptions': (
+    label: 'Notification emails',
+    description: 'Who is emailed about withdrawal requests and finished pools',
+    icon: Icons.mark_email_unread_outlined,
+    createLabel: 'Add email',
+    note: 'Each address is emailed only about the events switched on for it.',
   ),
   'settings': (
     label: 'System settings',

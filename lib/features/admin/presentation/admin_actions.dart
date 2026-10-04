@@ -27,6 +27,35 @@ Future<bool> runAdminAction(
   return error == null;
 }
 
+/// Like [runAdminAction], for changes where the server explains the outcome
+/// itself: approving a withdrawal can end as "processing", "successful",
+/// "failed and refunded" or "waiting for a one-time code". The server's
+/// sentence is shown as a neutral notice, because a request that was handled
+/// correctly is not always good news.
+///
+/// The lists in [refresh] are reloaded even when the action fails, because a
+/// refused bank transfer still changes what the record shows.
+Future<bool> runAdminActionForMessage(
+  BuildContext context,
+  WidgetRef ref, {
+  required Future<String> Function(AdminRepository repository) action,
+  List<String> refresh = const [],
+}) async {
+  var message = '';
+  final error = await ref.read(adminActionProvider.notifier).run(
+    (repository) async => message = await action(repository),
+    refresh: refresh,
+    refreshOnError: true,
+  );
+  if (!context.mounted) return error == null;
+  if (error == null) {
+    AppNotice.info(context, message);
+  } else {
+    AppNotice.error(context, error);
+  }
+  return error == null;
+}
+
 /// Asks before doing something that cannot be undone. Returns true only if
 /// the administrator pressed the confirm button.
 Future<bool> confirmAdminAction(

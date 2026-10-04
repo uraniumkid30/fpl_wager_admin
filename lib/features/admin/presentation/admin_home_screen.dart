@@ -8,8 +8,8 @@ import 'package:fpl_wager_admin/features/admin/presentation/admin_resources.dart
 import 'package:fpl_wager_admin/features/auth/presentation/auth_controller.dart';
 import 'package:go_router/go_router.dart';
 
-/// The admin dashboard: platform totals, pools waiting for approval, and a
-/// card for every section that can be managed.
+/// The admin dashboard: platform totals, pools and withdrawals waiting for
+/// approval, and a card for every section that can be managed.
 class AdminHomeScreen extends ConsumerWidget {
   const AdminHomeScreen({super.key});
 
@@ -21,6 +21,9 @@ class AdminHomeScreen extends ConsumerWidget {
     final pools = ref.watch(adminCollectionProvider('wagers')).value;
     final awaiting =
         pools?.where((pool) => '${pool['status']}' == 'draft').length ?? 0;
+    // Withdrawal requests nobody has approved or rejected yet.
+    final pendingWithdrawals =
+        summary.hasValue ? summary.requireValue.pendingWithdrawals : 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -83,6 +86,32 @@ class AdminHomeScreen extends ConsumerWidget {
                         awaiting == 1
                             ? '1 pool is waiting for approval'
                             : '$awaiting pools are waiting for approval',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded),
+                  ],
+                ),
+              ),
+            ],
+            if (pendingWithdrawals > 0) ...[
+              const SizedBox(height: AppSpacing.md),
+              GradientPanel(
+                onTap: () => context.push('/resources/withdrawals'),
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.north_east_rounded,
+                      color: AppColors.purple,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        pendingWithdrawals == 1
+                            ? '1 withdrawal is waiting for approval'
+                            : '$pendingWithdrawals withdrawals are waiting '
+                                'for approval',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),

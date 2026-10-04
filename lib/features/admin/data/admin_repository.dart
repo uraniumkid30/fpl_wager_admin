@@ -18,12 +18,17 @@ class AdminRepository {
   final ApiClient _client;
   static const _uuid = Uuid();
 
+  /// Approving or checking a withdrawal and settling a pool make the server
+  /// wait on Paystack, Korapay or FPL, which can take far longer than an
+  /// ordinary request. The server allows these 110 seconds.
+  static const _patient = Duration(seconds: 100);
+
   Future<AdminDashboardSummary> dashboard() async =>
       AdminDashboardSummary.fromJson(await _client.get('/admin/dashboard'));
 
   /// Lists one resource: users, wagers, payments, wallets, transactions,
-  /// settings, teams, challenges, notifications, gameweeks, audit-logs or
-  /// fpl-logins.
+  /// settings, teams, challenges, notifications, gameweeks, audit-logs,
+  /// fpl-logins, withdrawals or notification-subscriptions.
   Future<List<Map<String, Object?>>> collection(String resource) async =>
       _items(await _client.get('/admin/$resource'));
 
@@ -72,6 +77,25 @@ class AdminRepository {
     await _client.delete('/admin/wagers/$id');
   }
 
+  /// Finishes a locked pool now: scores it from FPL, pays the winners and
+  /// emails them. Returns a sentence describing what happened. The server
+  /// refuses until FPL has finalised the pool's gameweek.
+  Future<String> settleWager(String id) async {
+    final body = await _client.post(
+      '/admin/wagers/$id/settle',
+      receiveTimeout: _patient,
+    );
+    if ('${body['status']}' == 'cancelled') {
+      return 'The pool had fewer than two entries, so it was cancelled and '
+          'refunded.';
+    }
+    final winners = (body['winners'] as num? ?? 0).toInt();
+    final entrants = (body['entrants'] as num? ?? 0).toInt();
+    return 'Pool settled: $entrants entries, $winners paid '
+        '${winners == 1 ? 'place' : 'places'}. Winners have been paid and '
+        'emailed.';
+  }
+
   Future<List<Map<String, Object?>>> wagerMembers(String id) async =>
       _items(await _client.get('/admin/wagers/$id/members'));
 
@@ -98,6 +122,38 @@ class AdminRepository {
   /// One user's wallet: balances and their recent ledger.
   Future<Map<String, Object?>> wallet(String userId) =>
       _client.get('/admin/wallets/$userId');
+
+  // ── Withdrawals ────────────────────────────────────────────────────────
+
+  /// Approves a withdrawal request and starts the bank transfer through the
+  /// payment provider. Returns the server's description of what happened.
+  Future<String> approveWithdrawal(String id) async => _message(
+        await _client.post(
+          '/admin/withdrawals/$id/approve',
+          receiveTimeout: _patient,
+        ),
+        'Withdrawal approved.',
+      );
+
+  /// Rejects a request that is waiting for approval and returns the money to
+  /// the user's wallet. [reason] is optional and is shown to the user.
+  Future<String> rejectWithdrawal(String id, String reason) async => _message(
+        await _client.post(
+          '/admin/withdrawals/$id/reject',
+          data: {'reason': reason},
+        ),
+        'Withdrawal rejected.',
+      );
+
+  /// Asks the provider for the current state of an approved withdrawal's
+  /// transfer and updates the withdrawal if it changed.
+  Future<String> verifyWithdrawal(String id) async => _message(
+        await _client.post(
+          '/admin/withdrawals/$id/verify',
+          receiveTimeout: _patient,
+        ),
+        'Status checked.',
+      );
 
   Future<void> verifyPayment(String reference) async {
     await _client.post('/admin/payments/$reference/verify');
@@ -140,6 +196,44 @@ class AdminRepository {
     await _client.delete('/admin/notifications/$id');
   }
 
+  // ── Notification emails ────────────────────────────────────────────────
+
+  /// Adds an address to the list of people emailed about platform events.
+  Future<void> createNotificationEmail({
+    required String email,
+    required bool onWithdrawRequest,
+    required bool onPoolEnded,
+  }) async {
+    await _client.post(
+      '/admin/notification-subscriptions',
+      data: {
+        'email': email,
+        'on_withdraw_request': onWithdrawRequest,
+        'on_pool_ended': onPoolEnded,
+      },
+    );
+  }
+
+  Future<void> updateNotificationEmail(
+    String id, {
+    required String email,
+    required bool onWithdrawRequest,
+    required bool onPoolEnded,
+  }) async {
+    await _client.patch(
+      '/admin/notification-subscriptions/$id',
+      data: {
+        'email': email,
+        'on_withdraw_request': onWithdrawRequest,
+        'on_pool_ended': onPoolEnded,
+      },
+    );
+  }
+
+  Future<void> deleteNotificationEmail(String id) async {
+    await _client.delete('/admin/notification-subscriptions/$id');
+  }
+
   Future<void> deleteFplLogin(String id) async {
     await _client.delete('/admin/fpl-logins/$id');
   }
@@ -162,6 +256,12 @@ class AdminRepository {
   /// Links an FPL entry to the signed-in administrator's account.
   Future<Map<String, Object?>> linkTeam(int entryId) =>
       _client.post('/fpl-team/link', data: {'entry_id': entryId});
+}
+
+/// The server's own sentence about what an action did, or [fallback].
+String _message(Map<String, Object?> body, String fallback) {
+  final message = body['message'];
+  return message is String && message.trim().isNotEmpty ? message : fallback;
 }
 
 List<Map<String, Object?>> _items(Map<String, Object?> body) =>
