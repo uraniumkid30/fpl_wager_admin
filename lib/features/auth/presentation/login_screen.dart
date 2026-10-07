@@ -37,7 +37,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 440),
-                  child: Form(
+                  child: GradientPanel(
+                    padding: const EdgeInsets.all(28),
+                    child: Form(
                     key: _form,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -53,7 +55,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'For FPLwager administrators only.',
+                          'For FPLboardman administrators only.',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
@@ -129,6 +131,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                       ],
                     ),
+                  ),
                   ),
                 ),
               ],

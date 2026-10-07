@@ -12,6 +12,42 @@ final adminCollectionProvider = FutureProvider.autoDispose
   (ref, resource) => ref.watch(adminRepositoryProvider).collection(resource),
 );
 
+/// The newest few records of a resource, for the dashboard's short lists.
+final adminRecentProvider = FutureProvider.autoDispose
+    .family<List<Map<String, Object?>>, String>(
+  (ref, resource) => ref.watch(adminRepositoryProvider).recent(resource),
+);
+
+/// Sign-ups and money movement by day, with totals, for the dashboard.
+final adminStatsProvider = FutureProvider.autoDispose<Map<String, Object?>>(
+  (ref) => ref.watch(adminRepositoryProvider).stats(),
+);
+
+/// The auto pool switch and the stakes auto pools are offered at.
+final adminAutoPoolsProvider = FutureProvider.autoDispose<
+    ({bool enabled, List<Map<String, Object?>> tiers})>(
+  (ref) => ref.watch(adminRepositoryProvider).autoPools(),
+);
+
+/// What is waiting for an administrator: custom pools to approve and
+/// withdrawal requests to approve or reject.
+final attentionProvider =
+    Provider.autoDispose<({int pools, int withdrawals})>((ref) {
+  // Draft pools are the ones waiting for approval.
+  final byStatus = ref.watch(adminStatsProvider).orNull?['pools_by_status'];
+  final summary = ref.watch(adminDashboardProvider).orNull;
+  return (
+    pools: byStatus is Map ? (byStatus['draft'] as num? ?? 0).toInt() : 0,
+    withdrawals: summary?.pendingWithdrawals ?? 0,
+  );
+});
+
+extension AsyncValueOrNull<T> on AsyncValue<T> {
+  /// The latest value, or null while there is none (still loading the first
+  /// time, or failed before anything loaded).
+  T? get orNull => hasValue ? requireValue : null;
+}
+
 final adminUserProvider = FutureProvider.autoDispose.family<UserProfile, String>(
   (ref, userId) => ref.watch(adminRepositoryProvider).user(userId),
 );
@@ -62,19 +98,24 @@ class AdminActionController extends AsyncNotifier<void> {
     // tracks whether something is in flight.
     state = const AsyncData(null);
     if (result.hasError) {
-      if (refreshOnError) {
-        for (final resource in refresh) {
-          ref.invalidate(adminCollectionProvider(resource));
-        }
-        ref.invalidate(adminDashboardProvider);
-      }
+      if (refreshOnError) _reload(refresh);
       return result.error;
     }
-
-    for (final resource in refresh) {
-      ref.invalidate(adminCollectionProvider(resource));
-    }
-    ref.invalidate(adminDashboardProvider);
+    _reload(refresh);
     return null;
+  }
+
+  /// Reloads the lists an action touched, and the figures that depend on
+  /// them.
+  void _reload(List<String> resources) {
+    for (final resource in resources) {
+      ref.invalidate(adminCollectionProvider(resource));
+      ref.invalidate(adminRecentProvider(resource));
+    }
+    // Every action is written to the audit trail.
+    ref.invalidate(adminRecentProvider('audit-logs'));
+    ref.invalidate(adminCollectionProvider('audit-logs'));
+    ref.invalidate(adminDashboardProvider);
+    ref.invalidate(adminStatsProvider);
   }
 }

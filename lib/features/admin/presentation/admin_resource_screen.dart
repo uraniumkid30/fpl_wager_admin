@@ -1,1429 +1,1299 @@
-import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpl_wager_admin/app/theme/app_theme.dart';
+import 'package:fpl_wager_admin/core/export/save_file.dart';
 import 'package:fpl_wager_admin/core/ui/app_notice.dart';
 import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_actions.dart';
+import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
+import 'package:fpl_wager_admin/core/ui/ui_prefs.dart';
+import 'package:fpl_wager_admin/features/admin/data/admin_repository.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_resources.dart';
+import 'package:fpl_wager_admin/features/admin/presentation/record_actions.dart';
+import 'package:fpl_wager_admin/features/admin/presentation/record_panel.dart';
+import 'package:fpl_wager_admin/features/admin/presentation/resource_cells.dart';
+import 'package:fpl_wager_admin/features/admin/presentation/resource_views.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
-/// One action offered on a record's detail dialog.
-typedef _RecordAction = ({String key, String label, bool destructive});
-
-/// The list page for one kind of record, with its create / edit / delete
-/// actions. Tapping a record opens its details and whatever can be done to it.
-class AdminResourceScreen extends ConsumerWidget {
+/// The list page for one kind of record.
+///
+/// A table that can be searched, filtered, grouped, sorted and exported.
+/// Clicking a row slides its details in from the right, with a button for
+/// everything that can be done to it.
+class AdminResourceScreen extends ConsumerStatefulWidget {
   const AdminResourceScreen({required this.resource, super.key});
   final String resource;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final definition = adminResources[resource];
-    if (definition == null) {
-      return const Scaffold(
-        body: EmptyState(
-          icon: Icons.search_off_rounded,
-          title: 'Unknown section',
-          message: 'Return to the dashboard and choose a section.',
-        ),
-      );
-    }
-    final value = ref.watch(adminCollectionProvider(resource));
-    final busy = ref.watch(adminActionProvider).isLoading;
-    final createLabel = definition.createLabel;
-    final note = definition.note;
+  ConsumerState<AdminResourceScreen> createState() =>
+      _AdminResourceScreenState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(definition.label),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(adminCollectionProvider(resource)),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      floatingActionButton: createLabel == null
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: busy ? null : () => _create(context, ref),
-              icon: const Icon(Icons.add_rounded),
-              label: Text(createLabel),
-            ),
-      body: Column(
-        children: [
-          if (busy) const LinearProgressIndicator(),
-          if (note != null) _Note(text: note),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () async {
-                ref.invalidate(adminCollectionProvider(resource));
-                await ref.read(adminCollectionProvider(resource).future);
-              },
-              child: value.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, _) => ListView(
-                  children: [
-                    EmptyState(
-                      icon: Icons.cloud_off_rounded,
-                      title: 'Could not load ${definition.label.toLowerCase()}',
-                      message: error.toString(),
-                    ),
-                  ],
-                ),
-                data: (items) => items.isEmpty
-                    ? ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        children: [
-                          EmptyState(
-                            icon: definition.icon,
-                            title: 'Nothing here yet',
-                            message: 'Records appear here as they are created.',
-                          ),
-                        ],
-                      )
-                    : ListView.separated(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          AppSpacing.md,
-                          AppSpacing.md,
-                          120,
-                        ),
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) => _RecordCard(
-                          resource: resource,
-                          record: items[index],
-                          onTap: () => _open(context, ref, items[index]),
-                        ),
-                      ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+/// How many rows of a group are shown before "Show more".
+const _groupChunk = 25;
 
-  Future<void> _create(BuildContext context, WidgetRef ref) {
-    return switch (resource) {
-      'users' => _createUser(context, ref),
-      'wagers' => _createWager(context, ref),
-      'settings' => _putSetting(context, ref),
-      'notifications' => sendNotificationDialog(context, ref),
-      'notification-subscriptions' => _notificationEmailDialog(context, ref),
-      _ => Future<void>.value(),
+/// Groups beyond this many are not listed; the page says to narrow down.
+const _maxGroups = 200;
+
+class _AdminResourceScreenState extends ConsumerState<AdminResourceScreen> {
+  final _search = TextEditingController();
+  final _horizontal = ScrollController();
+
+  String _query = '';
+
+  /// Chosen values per filter field. A record must match one value of every
+  /// field that has any chosen.
+  final Map<String, Set<String>> _filters = {};
+  String? _groupKey;
+
+  /// How many rows of each group are showing. Zero is collapsed; a group
+  /// not in the map follows the default (open when there are few groups).
+  final Map<String, int> _groupRows = {};
+  String? _sortKey;
+  bool _ascending = true;
+  int _page = 0;
+  int _pageSize = 25;
+  late final Set<String> _hidden;
+
+  /// The searchable text of each record, worked out once per record.
+  final _haystacks = Expando<String>();
+
+  ResourceView get _view =>
+      resourceViews[widget.resource] ?? const ResourceView(columns: []);
+
+  @override
+  void initState() {
+    super.initState();
+    _hidden = {
+      for (final column in _view.columns)
+        if (column.hidden) column.key,
     };
   }
 
-  Future<void> _open(
-    BuildContext context,
-    WidgetRef ref,
-    Map<String, Object?> record,
-  ) async {
+  @override
+  void dispose() {
+    _search.dispose();
+    _horizontal.dispose();
+    super.dispose();
+  }
+
+  // ── Working the rows out ────────────────────────────────────────────────
+
+  String _haystack(Map<String, Object?> record) =>
+      _haystacks[record] ??= [
+        for (final column in _view.columns) ...[
+          cellText(column, record),
+          column.secondary?.call(record) ?? '',
+        ],
+        recordId(record),
+        '${record['email'] ?? ''}',
+        '${record['reference'] ?? ''}',
+      ].join(' ').toLowerCase();
+
+  List<Map<String, Object?>> _apply(List<Map<String, Object?>> items) {
+    final view = _view;
+    final words = _query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .toList();
+    final active = [
+      for (final field in view.filters)
+        if (_filters[field.key]?.isNotEmpty ?? false) field,
+    ];
+
+    var rows = items.where((record) {
+      for (final field in active) {
+        if (!_filters[field.key]!.contains(field.text(record))) return false;
+      }
+      if (words.isEmpty) return true;
+      final haystack = _haystack(record);
+      return words.every(haystack.contains);
+    }).toList();
+
+    final sortKey = _sortKey;
+    if (sortKey != null) {
+      final column = view.columns.where((c) => c.key == sortKey).firstOrNull;
+      if (column != null) {
+        final keyed = [
+          for (final record in rows)
+            (key: cellSortKey(column, record), record: record),
+        ];
+        keyed.sort(
+          (a, b) => _ascending
+              ? compareSortKeys(a.key, b.key)
+              : compareSortKeys(b.key, a.key),
+        );
+        rows = [for (final item in keyed) item.record];
+      }
+    }
+    return rows;
+  }
+
+  /// The values a filter offers, with how many records have each.
+  List<MapEntry<String, int>> _options(
+    FieldSpec field,
+    List<Map<String, Object?>> items,
+  ) {
+    final counts = <String, int>{};
+    for (final record in items) {
+      final text = field.text(record);
+      counts[text] = (counts[text] ?? 0) + 1;
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = entries.take(60).toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return top;
+  }
+
+  // ── Changing the view ───────────────────────────────────────────────────
+
+  void _toggleFilter(String field, String value) => setState(() {
+        final chosen = _filters.putIfAbsent(field, () => <String>{});
+        if (!chosen.remove(value)) chosen.add(value);
+        _page = 0;
+      });
+
+  void _clearFilters() => setState(() {
+        _filters.clear();
+        _search.clear();
+        _query = '';
+        _page = 0;
+      });
+
+  void _sortBy(ColumnSpec column) => setState(() {
+        if (_sortKey != column.key) {
+          _sortKey = column.key;
+          // Numbers and dates are usually wanted biggest or newest first.
+          _ascending = !(column.numeric || column.kind == CellKind.date);
+        } else if (_ascending == !(column.numeric || column.kind == CellKind.date)) {
+          _ascending = !_ascending;
+        } else {
+          // Third click: back to the order the server sent.
+          _sortKey = null;
+        }
+        _page = 0;
+      });
+
+  void _toggleColumn(String key, int visibleCount) {
+    if (!_hidden.contains(key) && visibleCount <= 1) {
+      AppNotice.info(context, 'At least one column has to stay.');
+      return;
+    }
+    setState(() {
+      if (!_hidden.remove(key)) _hidden.add(key);
+    });
+  }
+
+  void _refresh() => ref.invalidate(adminCollectionProvider(widget.resource));
+
+  // ── Export ──────────────────────────────────────────────────────────────
+
+  Future<void> _export(
+    List<Map<String, Object?>> rows,
+    List<ColumnSpec> columns, {
+    required bool download,
+  }) async {
+    if (rows.isEmpty) {
+      AppNotice.info(context, 'There is nothing to export.');
+      return;
+    }
+    final header = <String>[
+      for (final column in columns) ...[
+        column.label,
+        if (column.secondary != null) '${column.label} (detail)',
+      ],
+      'ID',
+    ];
+    final csv = toCsv(
+      header,
+      rows.map(
+        (record) => [
+          for (final column in columns) ...[
+            cellExport(column, record),
+            if (column.secondary != null) column.secondary!(record),
+          ],
+          recordId(record),
+        ],
+      ),
+    );
+    final stamp = DateFormat('yyyyMMdd-HHmm').format(DateTime.now());
+    final filename = 'fplboardman-${widget.resource}-$stamp.csv';
+    final count = '${rows.length} ${rows.length == 1 ? 'row' : 'rows'}';
+
+    // The leading mark tells Excel the file is UTF-8, so "₦" and accented
+    // names survive.
+    if (download && saveTextFile(filename: filename, content: '\uFEFF$csv')) {
+      AppNotice.success(context, '$count saved as $filename.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: csv));
+    if (!mounted) return;
+    AppNotice.info(
+      context,
+      download
+          ? 'Files can only be saved from the web version. $count copied '
+              'as CSV instead: paste them into a spreadsheet.'
+          : '$count copied as CSV. Paste them into a spreadsheet.',
+    );
+  }
+
+  // ── Opening a record ────────────────────────────────────────────────────
+
+  Future<void> _open(Map<String, Object?> record) async {
+    final resource = widget.resource;
     if (resource == 'users') {
       final id = record['id'];
       if (id != null) await context.push('/users/$id');
       return;
     }
-    final action = await showDialog<String>(
-      context: context,
-      builder: (context) => _RecordDialog(
-        title: _title(resource, record),
-        record: record,
-        actions: _actionsFor(resource, record),
+    final action = await showRecordPanel(
+      context,
+      resource: resource,
+      record: record,
+    );
+    if (action == null || !mounted) return;
+    if (action == openUserAction) {
+      await context.push('/users/${record['user_id']}');
+      return;
+    }
+    await performRecordAction(context, ref, resource, record, action);
+  }
+
+  // ── Build ───────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final resource = widget.resource;
+    final definition = adminResources[resource];
+    if (definition == null) {
+      return EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'Unknown section',
+        message: 'Choose a section from the menu.',
+        action: FilledButton(
+          onPressed: () => context.go('/'),
+          child: const Text('Go to the dashboard'),
+        ),
+      );
+    }
+    final value = ref.watch(adminCollectionProvider(resource));
+    final busy = ref.watch(adminActionProvider).isLoading;
+    final compact = ref.watch(uiPrefsProvider).compact;
+    final view = _view;
+    final items = value.orNull;
+    final rows = items == null ? null : _apply(items);
+    final visible = [
+      for (final column in view.columns)
+        if (!_hidden.contains(column.key)) column,
+    ];
+    final createLabel = definition.createLabel;
+    final note = definition.note;
+
+    return PageBody(
+      onRefresh: () async {
+        _refresh();
+        await ref.read(adminCollectionProvider(resource).future);
+      },
+      children: [
+        FadeSlideIn(
+          child: PageHeader(
+            title: definition.label,
+            subtitle: definition.description,
+            actions: [
+              Tooltip(
+                message: 'Reload from the server',
+                child: OutlinedButton.icon(
+                  onPressed: _refresh,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Refresh'),
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Export what is listed',
+                position: PopupMenuPosition.under,
+                enabled: rows != null,
+                onSelected: (choice) => _export(
+                  rows ?? const [],
+                  visible,
+                  download: choice == 'download',
+                ),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'download',
+                    child: _MenuRow(
+                      icon: Icons.download_rounded,
+                      text: 'Download CSV',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'copy',
+                    child: _MenuRow(
+                      icon: Icons.copy_rounded,
+                      text: 'Copy as CSV',
+                    ),
+                  ),
+                ],
+                child: const _ButtonFace(
+                  icon: Icons.ios_share_rounded,
+                  label: 'Export',
+                ),
+              ),
+              if (createLabel != null)
+                FilledButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => createRecord(context, ref, resource),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(createLabel),
+                ),
+            ],
+          ),
+        ),
+        if (note != null) ...[
+          const SizedBox(height: 14),
+          NoticeBar(text: note, tone: Tone.neutral),
+        ],
+        if (items != null && items.length >= AdminRepository.maxRows) ...[
+          const SizedBox(height: 10),
+          NoticeBar(
+            text: 'Showing the newest ${AdminRepository.maxRows} records. '
+                'Older ones are not loaded here.',
+            tone: Tone.warning,
+          ),
+        ],
+        const SizedBox(height: 18),
+        FadeSlideIn(
+          delay: const Duration(milliseconds: 60),
+          child: AppCard(
+            padding: EdgeInsets.zero,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(13),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _toolbar(context, view, items ?? const [], rows, visible),
+                  if (value.isLoading && items != null)
+                    const LinearProgressIndicator(minHeight: 2)
+                  else
+                    Divider(color: Palette.of(context).border, height: 1),
+                  AnimatedSize(
+                    duration: AppMotion.standard,
+                    curve: AppMotion.curve,
+                    alignment: Alignment.topCenter,
+                    child: _content(
+                      context,
+                      value,
+                      definition,
+                      items,
+                      rows,
+                      visible,
+                      compact,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _content(
+    BuildContext context,
+    AsyncValue<List<Map<String, Object?>>> value,
+    AdminResourceDefinition definition,
+    List<Map<String, Object?>>? items,
+    List<Map<String, Object?>>? rows,
+    List<ColumnSpec> visible,
+    bool compact,
+  ) {
+    if (items == null || rows == null) {
+      if (value.hasError) {
+        return EmptyState(
+          icon: Icons.cloud_off_rounded,
+          title: 'Could not load ${definition.label.toLowerCase()}',
+          message: '${value.error}',
+          action: FilledButton.tonal(
+            onPressed: _refresh,
+            child: const Text('Try again'),
+          ),
+        );
+      }
+      return const SizedBox(
+        height: 260,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (items.isEmpty) {
+      return EmptyState(
+        icon: definition.icon,
+        title: 'Nothing here yet',
+        message: 'Records appear here as they are created.',
+      );
+    }
+    if (rows.isEmpty) {
+      return EmptyState(
+        icon: Icons.filter_alt_off_outlined,
+        title: 'Nothing matches',
+        message: 'No record fits the search and filters you have set.',
+        action: OutlinedButton(
+          onPressed: _clearFilters,
+          child: const Text('Clear search and filters'),
+        ),
+      );
+    }
+
+    final groupKey = _groupKey;
+    final field = groupKey == null
+        ? null
+        : _view.groups.where((g) => g.key == groupKey).firstOrNull;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const chevron = 40.0;
+        final widths = _widths(visible, constraints.maxWidth - chevron);
+        final total = widths.fold<double>(chevron, (sum, w) => sum + w);
+        final body = field == null
+            ? _plainRows(context, rows, visible, widths, compact)
+            : _groupedRows(context, rows, field, visible, widths, compact);
+        final table = SizedBox(
+          width: total,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _HeaderRow(
+                columns: visible,
+                widths: widths,
+                sortKey: _sortKey,
+                ascending: _ascending,
+                onSort: _sortBy,
+              ),
+              ...body,
+            ],
+          ),
+        );
+        final scrolls = total > constraints.maxWidth + 0.01;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (scrolls)
+              Scrollbar(
+                controller: _horizontal,
+                child: SingleChildScrollView(
+                  controller: _horizontal,
+                  scrollDirection: Axis.horizontal,
+                  child: table,
+                ),
+              )
+            else
+              table,
+            if (field == null) _pager(context, rows.length),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Every column gets its minimum; what is left over is shared out by flex.
+  List<double> _widths(List<ColumnSpec> columns, double available) {
+    final minimum = columns.fold<double>(0, (sum, c) => sum + c.width);
+    final extra = math.max(0.0, available - minimum);
+    final flex = columns.fold<int>(0, (sum, c) => sum + c.flex);
+    return [
+      for (final column in columns)
+        column.width +
+            (flex == 0
+                ? extra / math.max(1, columns.length)
+                : extra * column.flex / flex),
+    ];
+  }
+
+  List<Widget> _plainRows(
+    BuildContext context,
+    List<Map<String, Object?>> rows,
+    List<ColumnSpec> visible,
+    List<double> widths,
+    bool compact,
+  ) {
+    final pages = math.max(1, (rows.length / _pageSize).ceil());
+    final page = math.min(_page, pages - 1);
+    final start = page * _pageSize;
+    final end = math.min(rows.length, start + _pageSize);
+    return [
+      for (var i = start; i < end; i++)
+        _DataRow(
+          key: ObjectKey(rows[i]),
+          record: rows[i],
+          columns: visible,
+          widths: widths,
+          compact: compact,
+          last: i == end - 1,
+          onTap: () => _open(rows[i]),
+        ),
+    ];
+  }
+
+  List<Widget> _groupedRows(
+    BuildContext context,
+    List<Map<String, Object?>> rows,
+    FieldSpec field,
+    List<ColumnSpec> visible,
+    List<double> widths,
+    bool compact,
+  ) {
+    final groups = <String, List<Map<String, Object?>>>{};
+    for (final record in rows) {
+      (groups[field.text(record)] ??= []).add(record);
+    }
+    final names = groups.keys.toList()..sort();
+    final openByDefault = names.length <= 8;
+    // A money column to total up in each group's heading, if there is one.
+    final sumColumn = visible
+        .where((c) => c.kind == CellKind.money || c.kind == CellKind.signedMoney)
+        .firstOrNull;
+    final palette = Palette.of(context);
+
+    final widgets = <Widget>[];
+    for (final name in names.take(_maxGroups)) {
+      final members = groups[name]!;
+      final showing = math.min(
+        members.length,
+        _groupRows[name] ?? (openByDefault ? _groupChunk : 0),
+      );
+      var sum = 0.0;
+      if (sumColumn != null) {
+        for (final record in members) {
+          final value = sumColumn.value(record);
+          if (value is num) sum += value;
+        }
+      }
+      widgets.add(
+        _GroupHeader(
+          label: '${field.label}: $name',
+          count: members.length,
+          total: sumColumn == null
+              ? null
+              : '${sumColumn.label} ${money(sum.round())}',
+          open: showing > 0,
+          onTap: () => setState(
+            () => _groupRows[name] = showing > 0 ? 0 : _groupChunk,
+          ),
+        ),
+      );
+      for (var i = 0; i < showing; i++) {
+        widgets.add(
+          _DataRow(
+            key: ObjectKey(members[i]),
+            record: members[i],
+            columns: visible,
+            widths: widths,
+            compact: compact,
+            last: false,
+            onTap: () => _open(members[i]),
+          ),
+        );
+      }
+      if (showing > 0 && showing < members.length) {
+        final remaining = members.length - showing;
+        widgets.add(
+          Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: palette.border)),
+            ),
+            child: TextButton(
+              onPressed: () => setState(
+                () => _groupRows[name] = showing + _groupChunk,
+              ),
+              child: Text(
+                'Show ${math.min(remaining, _groupChunk)} more of $remaining',
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    if (names.length > _maxGroups) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Showing the first $_maxGroups of ${names.length} groups. '
+            'Search or filter to narrow the list down.',
+            style: TextStyle(color: palette.muted),
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  // ── Toolbar ─────────────────────────────────────────────────────────────
+
+  Widget _toolbar(
+    BuildContext context,
+    ResourceView view,
+    List<Map<String, Object?>> items,
+    List<Map<String, Object?>>? rows,
+    List<ColumnSpec> visible,
+  ) {
+    final palette = Palette.of(context);
+    final groupKey = _groupKey;
+    final grouped =
+        view.groups.where((g) => g.key == groupKey).firstOrNull;
+    final chosen = [
+      for (final field in view.filters)
+        for (final value in _filters[field.key] ?? const <String>{})
+          (field: field, value: value),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 280,
+                child: TextField(
+                  controller: _search,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Search ${adminResources[widget.resource]?.label.toLowerCase() ?? ''}',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                    fillColor: palette.subtle,
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(Icons.close_rounded, size: 17),
+                            onPressed: () => setState(() {
+                              _search.clear();
+                              _query = '';
+                              _page = 0;
+                            }),
+                          ),
+                  ),
+                  onChanged: (text) => setState(() {
+                    _query = text.trim();
+                    _page = 0;
+                  }),
+                ),
+              ),
+              for (final field in view.filters)
+                PopupMenuButton<String>(
+                  tooltip: 'Filter by ${field.label.toLowerCase()}',
+                  position: PopupMenuPosition.under,
+                  onSelected: (value) => _toggleFilter(field.key, value),
+                  itemBuilder: (context) => [
+                    for (final option in _options(field, items))
+                      CheckedPopupMenuItem<String>(
+                        value: option.key,
+                        checked:
+                            _filters[field.key]?.contains(option.key) ?? false,
+                        child: Text('${option.key}  ·  ${option.value}'),
+                      ),
+                  ],
+                  child: _ButtonFace(
+                    icon: Icons.filter_list_rounded,
+                    label: field.label,
+                    count: _filters[field.key]?.length ?? 0,
+                  ),
+                ),
+              if (view.groups.isNotEmpty)
+                PopupMenuButton<String>(
+                  tooltip: 'Group the list',
+                  position: PopupMenuPosition.under,
+                  onSelected: (key) => setState(() {
+                    _groupKey = key.isEmpty ? null : key;
+                    _groupRows.clear();
+                    _page = 0;
+                  }),
+                  itemBuilder: (context) => [
+                    CheckedPopupMenuItem<String>(
+                      value: '',
+                      checked: groupKey == null,
+                      child: const Text('No grouping'),
+                    ),
+                    for (final field in view.groups)
+                      CheckedPopupMenuItem<String>(
+                        value: field.key,
+                        checked: groupKey == field.key,
+                        child: Text(field.label),
+                      ),
+                  ],
+                  child: _ButtonFace(
+                    icon: Icons.account_tree_outlined,
+                    label: grouped == null
+                        ? 'Group by'
+                        : 'Grouped by ${grouped.label.toLowerCase()}',
+                    active: grouped != null,
+                  ),
+                ),
+              PopupMenuButton<String>(
+                tooltip: 'Choose columns',
+                position: PopupMenuPosition.under,
+                onSelected: (key) => _toggleColumn(key, visible.length),
+                itemBuilder: (context) => [
+                  for (final column in view.columns)
+                    CheckedPopupMenuItem<String>(
+                      value: column.key,
+                      checked: !_hidden.contains(column.key),
+                      child: Text(column.label),
+                    ),
+                ],
+                child: const _ButtonFace(
+                  icon: Icons.view_column_outlined,
+                  label: 'Columns',
+                ),
+              ),
+              if (rows != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(
+                    rows.length == items.length
+                        ? '${items.length} ${items.length == 1 ? 'record' : 'records'}'
+                        : '${rows.length} of ${items.length}',
+                    style: TextStyle(color: palette.muted, fontSize: 13),
+                  ),
+                ),
+            ],
+          ),
+          AnimatedSize(
+            duration: AppMotion.quick,
+            curve: AppMotion.curve,
+            alignment: Alignment.topLeft,
+            child: chosen.isEmpty
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        for (final item in chosen)
+                          _FilterChip(
+                            label: '${item.field.label}: ${item.value}',
+                            onRemove: () =>
+                                _toggleFilter(item.field.key, item.value),
+                          ),
+                        TextButton(
+                          onPressed: _clearFilters,
+                          child: const Text('Clear all'),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
-    if (action == null || !context.mounted) return;
-    await _perform(context, ref, resource, record, action);
+  }
+
+  // ── Pager ───────────────────────────────────────────────────────────────
+
+  Widget _pager(BuildContext context, int count) {
+    final palette = Palette.of(context);
+    final pages = math.max(1, (count / _pageSize).ceil());
+    final page = math.min(_page, pages - 1);
+    final first = count == 0 ? 0 : page * _pageSize + 1;
+    final last = math.min(count, (page + 1) * _pageSize);
+    void go(int to) => setState(() => _page = to);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: palette.border)),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 6,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Rows per page',
+                style: TextStyle(color: palette.muted, fontSize: 13),
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<int>(
+                tooltip: 'Rows per page',
+                onSelected: (size) => setState(() {
+                  _pageSize = size;
+                  _page = 0;
+                }),
+                itemBuilder: (context) => [
+                  for (final size in const [10, 25, 50, 100])
+                    CheckedPopupMenuItem<int>(
+                      value: size,
+                      checked: size == _pageSize,
+                      child: Text('$size'),
+                    ),
+                ],
+                child: _ButtonFace(label: '$_pageSize', dense: true),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$first–$last of $count',
+                style: TextStyle(color: palette.muted, fontSize: 13),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'First page',
+                onPressed: page > 0 ? () => go(0) : null,
+                icon: const Icon(Icons.first_page_rounded),
+              ),
+              IconButton(
+                tooltip: 'Previous page',
+                onPressed: page > 0 ? () => go(page - 1) : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  '${page + 1} / $pages',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next page',
+                onPressed: page < pages - 1 ? () => go(page + 1) : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+              IconButton(
+                tooltip: 'Last page',
+                onPressed: page < pages - 1 ? () => go(pages - 1) : null,
+                icon: const Icon(Icons.last_page_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// What each record looks like in the list
+// Pieces of the table
 // ───────────────────────────────────────────────────────────────────────────
 
-String _title(String resource, Map<String, Object?> record) {
-  final text = switch (resource) {
-    'users' || 'wallets' => firstValue(record, const ['full_name', 'email']),
-    'wagers' => firstValue(record, const ['name']),
-    'payments' => firstValue(record, const ['reference']),
-    'withdrawals' =>
-      '${_moneyOf(record['amount_cents'])} · ${firstValue(record, const ['full_name', 'email'])}',
-    'notification-subscriptions' => firstValue(record, const ['email']),
-    'transactions' => firstValue(record, const ['description', 'kind']),
-    'challenges' =>
-      '${firstValue(record, const ['challenger_name'])} vs ${firstValue(record, const ['opponent_name', 'opponent_team_id'])}',
-    'teams' => firstValue(record, const ['team_name']),
-    'notifications' => firstValue(record, const ['title']),
-    'settings' => firstValue(record, const ['key']),
-    'gameweeks' => firstValue(record, const ['name', 'number']),
-    'fpl-logins' => firstValue(record, const ['full_name']),
-    'audit-logs' => firstValue(record, const ['action']),
-    _ => '',
-  };
-  return text.isEmpty ? 'Record' : text;
+class _HeaderRow extends StatelessWidget {
+  const _HeaderRow({
+    required this.columns,
+    required this.widths,
+    required this.sortKey,
+    required this.ascending,
+    required this.onSort,
+  });
+
+  final List<ColumnSpec> columns;
+  final List<double> widths;
+  final String? sortKey;
+  final bool ascending;
+  final void Function(ColumnSpec column) onSort;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: palette.subtle,
+        border: Border(bottom: BorderSide(color: palette.border)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < columns.length; i++)
+            SizedBox(
+              width: widths[i],
+              child: _HeaderCell(
+                column: columns[i],
+                sorted: sortKey == columns[i].key,
+                ascending: ascending,
+                first: i == 0,
+                onTap: () => onSort(columns[i]),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
-String _subtitle(String resource, Map<String, Object?> record) {
-  final parts = switch (resource) {
-    'users' => [
-        firstValue(record, const ['email']),
-        firstValue(record, const ['role']),
-      ],
-    'wagers' => [
-        'GW${firstValue(record, const ['gameweek'])}',
-        _moneyOf(record['stake_cents']),
-        '${firstValue(record, const ['member_count'])} entries',
-        firstValue(record, const ['pool_kind']),
-      ],
-    'wallets' => [
-        firstValue(record, const ['email']),
-        '${_moneyOf(record['available_cents'])} available',
-        '${_moneyOf(record['locked_cents'])} locked',
-      ],
-    'payments' => [
-        firstValue(record, const ['provider']),
-        _moneyOf(record['amount_cents']),
-        firstValue(record, const ['credential_mode']),
-      ],
-    'withdrawals' => [
-        firstValue(record, const ['email']),
-        _bankOf(record['bank_details']),
-        _dateOf(record['created_at']),
-        if (firstValue(record, const ['last_error']).isNotEmpty)
-          'Provider: ${firstValue(record, const ['last_error'])}',
-      ],
-    'notification-subscriptions' => [
-        'Withdrawal requests ${record['on_withdraw_request'] == true ? 'on' : 'off'}',
-        'Pool ended ${record['on_pool_ended'] == true ? 'on' : 'off'}',
-      ],
-    'transactions' => [
-        firstValue(record, const ['email']),
-        firstValue(record, const ['kind']),
-        _moneyOf(record['amount_cents']),
-        // A withdrawal's entry records the account the money was sent to.
-        _bankOf(record['meta'] is Map ? (record['meta']! as Map)['bank_details'] : null),
-      ],
-    'challenges' => [
-        'GW${firstValue(record, const ['gameweek'])}',
-        _moneyOf(record['stake_cents']),
-      ],
-    'teams' => [
-        firstValue(record, const ['full_name']),
-        'FPL ID ${firstValue(record, const ['entry_id'])}',
-      ],
-    'notifications' => [
-        firstValue(record, const ['full_name']),
-        firstValue(record, const ['body']),
-      ],
-    'settings' => [jsonEncode(record['value'])],
-    'gameweeks' => [
-        _dateOf(record['deadline']),
-        '${firstValue(record, const ['pools'])} pools',
-      ],
-    'fpl-logins' => [
-        'FPL ID ${firstValue(record, const ['entry_id'])}',
-        _dateOf(record['created_at']),
-      ],
-    'audit-logs' => [
-        firstValue(record, const ['admin_name']),
-        '${firstValue(record, const ['resource_type'])} ${firstValue(record, const ['resource_id'])}',
-        _dateOf(record['created_at']),
-      ],
-    _ => <String>[],
-  };
-  return parts.where((part) => part.trim().isNotEmpty).join(' · ');
-}
-
-String _moneyOf(Object? cents) => cents is num ? money(cents.toInt()) : '';
-
-/// "Access Bank 0123456789 (CHRIS OKORO)" from a withdrawal's bank details,
-/// or '' when there are none.
-String _bankOf(Object? details) {
-  if (details is! Map) return '';
-  final bank = '${details['bank_name'] ?? ''}'.trim();
-  final number = '${details['account_number'] ?? ''}'.trim();
-  final name = '${details['account_name'] ?? ''}'.trim();
-  if (number.isEmpty) return '';
-  final account = bank.isEmpty ? number : '$bank $number';
-  return name.isEmpty ? account : '$account ($name)';
-}
-
-/// How a status reads to a person: "pending_approval" → "pending approval".
-String _readable(String status) => status.replaceAll('_', ' ');
-
-/// "2026-10-03 14:05" from an ISO timestamp, in the device's time zone.
-String _dateOf(Object? value) {
-  final parsed = value is String ? DateTime.tryParse(value) : null;
-  if (parsed == null) return '';
-  final local = parsed.toLocal();
-  String two(int number) => number.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} '
-      '${two(local.hour)}:${two(local.minute)}';
-}
-
-String _pill(Map<String, Object?> record) =>
-    _readable(firstValue(record, const ['status', 'outcome']));
-
-class _RecordCard extends StatelessWidget {
-  const _RecordCard({
-    required this.resource,
-    required this.record,
+class _HeaderCell extends StatelessWidget {
+  const _HeaderCell({
+    required this.column,
+    required this.sorted,
+    required this.ascending,
+    required this.first,
     required this.onTap,
   });
 
-  final String resource;
-  final Map<String, Object?> record;
+  final ColumnSpec column;
+  final bool sorted;
+  final bool ascending;
+  final bool first;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = _subtitle(resource, record);
-    final pill = _pill(record);
-    final primary = Theme.of(context).colorScheme.primary;
-    return GradientPanel(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: primary.withValues(alpha: 0.13),
-            child: Icon(adminResources[resource]!.icon, color: primary),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final palette = Palette.of(context);
+    final color = sorted ? palette.text : palette.muted;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Tooltip(
+          message: 'Sort by ${column.label.toLowerCase()}',
+          waitDuration: const Duration(milliseconds: 800),
+          child: Padding(
+            padding: EdgeInsets.only(left: first ? 18 : 10, right: 10),
+            child: Row(
+              mainAxisAlignment: column.numeric
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
               children: [
-                Text(
-                  _title(resource, record),
-                  style: Theme.of(context).textTheme.titleMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (subtitle.isNotEmpty)
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                    maxLines: 2,
+                Flexible(
+                  child: Text(
+                    column.label,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
+                ),
+                const SizedBox(width: 3),
+                AnimatedOpacity(
+                  duration: AppMotion.quick,
+                  opacity: sorted ? 1 : 0,
+                  child: AnimatedRotation(
+                    duration: AppMotion.quick,
+                    turns: ascending ? 0 : 0.5,
+                    child: Icon(Icons.arrow_upward_rounded, size: 14, color: color),
+                  ),
+                ),
               ],
             ),
           ),
-          if (pill.isNotEmpty) ...[
+        ),
+      ),
+    );
+  }
+}
+
+class _DataRow extends StatelessWidget {
+  const _DataRow({
+    required this.record,
+    required this.columns,
+    required this.widths,
+    required this.compact,
+    required this.last,
+    required this.onTap,
+    super.key,
+  });
+
+  final Map<String, Object?> record;
+  final List<ColumnSpec> columns;
+  final List<double> widths;
+  final bool compact;
+
+  /// The last row of a page has no line under it.
+  final bool last;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: palette.hover,
+        child: Container(
+          constraints: BoxConstraints(minHeight: compact ? 40 : 56),
+          decoration: BoxDecoration(
+            border: last
+                ? null
+                : Border(bottom: BorderSide(color: palette.border)),
+          ),
+          child: Row(
+            children: [
+              for (var i = 0; i < columns.length; i++)
+                SizedBox(
+                  width: widths[i],
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      i == 0 ? 18 : 10,
+                      compact ? 6 : 9,
+                      10,
+                      compact ? 6 : 9,
+                    ),
+                    child: Align(
+                      alignment: columns[i].numeric
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: CellView(
+                        column: columns[i],
+                        record: record,
+                        showSecondary: !compact,
+                      ),
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: 40,
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: palette.muted.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({
+    required this.label,
+    required this.count,
+    required this.total,
+    required this.open,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+
+  /// A sum to show at the right, e.g. "Amount ₦120,000"; null for none.
+  final String? total;
+  final bool open;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    final total = this.total;
+    return Material(
+      color: palette.subtle.withValues(alpha: 0.6),
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: palette.hover,
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: palette.border)),
+          ),
+          child: Row(
+            children: [
+              AnimatedRotation(
+                duration: AppMotion.quick,
+                turns: open ? 0.25 : 0,
+                child: const Icon(Icons.chevron_right_rounded, size: 20),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: palette.card,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: palette.border),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: palette.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (total != null) ...[
+                const SizedBox(width: 14),
+                Text(
+                  total,
+                  style: TextStyle(color: palette.muted, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Pieces of the toolbar
+// ───────────────────────────────────────────────────────────────────────────
+
+/// The look of a toolbar button that opens a menu. (The menu button itself
+/// supplies the click.)
+class _ButtonFace extends StatelessWidget {
+  const _ButtonFace({
+    required this.label,
+    this.icon,
+    this.count = 0,
+    this.active = false,
+    this.dense = false,
+  });
+
+  final String label;
+  final IconData? icon;
+
+  /// How many values are chosen, shown in a small badge.
+  final int count;
+  final bool active;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    final on = active || count > 0;
+    final color = on ? palette.accent : palette.text;
+    final icon = this.icon;
+    return Container(
+      height: dense ? 32 : 42,
+      padding: EdgeInsets.symmetric(horizontal: dense ? 10 : 14),
+      decoration: BoxDecoration(
+        color: on ? palette.accent.withValues(alpha: 0.08) : palette.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: on ? palette.accent.withValues(alpha: 0.5) : palette.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 17, color: on ? palette.accent : palette.muted),
             const SizedBox(width: 8),
-            StatusPill(pill),
           ],
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right_rounded),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (count > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: palette.accent,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more_rounded, size: 17, color: palette.muted),
         ],
       ),
     );
   }
 }
 
-class _Note extends StatelessWidget {
-  const _Note({required this.text});
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({required this.icon, required this.text});
+  final IconData icon;
   final String text;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.md, 8, AppSpacing.md, 0),
-        child: GradientPanel(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              const Icon(Icons.info_outline_rounded, color: AppColors.emerald),
-              const SizedBox(width: 12),
-              Expanded(child: Text(text)),
-            ],
-          ),
-        ),
-      );
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// A record's details and what can be done to it
-// ───────────────────────────────────────────────────────────────────────────
-
-_RecordAction _action(String key, String label, {bool destructive = false}) =>
-    (key: key, label: label, destructive: destructive);
-
-List<_RecordAction> _actionsFor(String resource, Map<String, Object?> record) {
-  final status = '${record['status'] ?? ''}';
-  switch (resource) {
-    case 'wagers':
-      return [
-        if (status == 'draft') _action('approve', 'Approve'),
-        // A locked pool can be finished by hand once FPL has finalised its
-        // gameweek; the worker does the same on its own every few minutes.
-        if (status == 'locked' || status == 'scoring')
-          _action('settle', 'Settle now'),
-        _action('members', 'Entries'),
-        _action('edit', 'Edit'),
-        // A settled pool has paid out; its status is final.
-        if (status != 'settled') _action('status', 'Change status'),
-        _action('delete', 'Delete', destructive: true),
-      ];
-    case 'withdrawals':
-      // The provider has acknowledged the transfer once it has reported a
-      // status for it. Until then an approved request can be sent again.
-      final acknowledged = '${record['provider_status'] ?? ''}'.isNotEmpty;
-      return [
-        if (status == 'pending_approval') ...[
-          _action('approve', 'Approve and pay'),
-          _action('reject', 'Reject', destructive: true),
-        ],
-        if (status == 'approved' && !acknowledged)
-          _action('approve', 'Retry transfer'),
-        if (status == 'approved' || status == 'successful' || status == 'failed')
-          _action('verify', 'Check status'),
-      ];
-    case 'notification-subscriptions':
-      return [
-        _action('edit', 'Edit'),
-        _action('delete', 'Delete', destructive: true),
-      ];
-    case 'wallets':
-      return [
-        _action('add', 'Add money'),
-        _action('deduct', 'Deduct money'),
-      ];
-    case 'payments':
-      return [
-        _action('verify', 'Verify with provider'),
-        _action('delete', 'Delete', destructive: true),
-      ];
-    case 'settings':
-      return [
-        _action('edit', 'Edit'),
-        _action('delete', 'Delete', destructive: true),
-      ];
-    case 'teams':
-      return [_action('delete', 'Unlink team', destructive: true)];
-    case 'challenges':
-    case 'notifications':
-    case 'fpl-logins':
-      return [_action('delete', 'Delete', destructive: true)];
-    default:
-      // Transactions, gameweeks and the audit trail are read-only.
-      return const [];
-  }
-}
-
-class _RecordDialog extends StatelessWidget {
-  const _RecordDialog({
-    required this.title,
-    required this.record,
-    required this.actions,
-  });
-
-  final String title;
-  final Map<String, Object?> record;
-  final List<_RecordAction> actions;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: SelectableText(
-              prettyJson(record),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5),
-            ),
-          ),
-        ),
-        actionsOverflowButtonSpacing: 4,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          for (final action in actions)
-            action.destructive
-                ? TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                    onPressed: () => Navigator.pop(context, action.key),
-                    child: Text(action.label),
-                  )
-                : FilledButton.tonal(
-                    onPressed: () => Navigator.pop(context, action.key),
-                    child: Text(action.label),
-                  ),
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 10),
+          Text(text),
         ],
       );
 }
 
-Future<void> _perform(
-  BuildContext context,
-  WidgetRef ref,
-  String resource,
-  Map<String, Object?> record,
-  String action,
-) async {
-  final name = _title(resource, record);
-  // Which button was pressed on which kind of record, e.g. "wagers/approve".
-  final pressed = '$resource/$action';
-
-  // ── Pools ────────────────────────────────────────────────────────────
-  if (pressed == 'wagers/approve') {
-    final id = '${record['id']}';
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.approveWager(id),
-      refresh: const ['wagers', 'notifications'],
-      success: '$name is approved and open. Its creator has been notified.',
-    );
-    return;
-  }
-  if (pressed == 'wagers/settle') {
-    final id = '${record['id']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Settle $name now?',
-      message: 'Every entry is scored from FPL, the winners are paid into '
-          'their wallets and emailed, and the pool is closed for good. It '
-          'only works once FPL has finalised the gameweek.',
-      confirmLabel: 'Settle pool',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminActionForMessage(
-      context,
-      ref,
-      action: (repository) => repository.settleWager(id),
-      refresh: const ['wagers', 'wallets', 'transactions', 'notifications'],
-    );
-    return;
-  }
-  if (pressed == 'wagers/members') {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => _PoolEntriesDialog(
-        poolId: '${record['id']}',
-        poolName: name,
-      ),
-    );
-    return;
-  }
-  if (pressed == 'wagers/edit') {
-    await _editWager(context, ref, record);
-    return;
-  }
-  if (pressed == 'wagers/status') {
-    await _changeWagerStatus(context, ref, record);
-    return;
-  }
-  if (pressed == 'wagers/delete') {
-    final id = '${record['id']}';
-    final settled = '${record['status']}' == 'settled';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Delete $name?',
-      message: settled
-          ? 'The pool and its entries will be removed. It is already '
-              'settled, so no money moves. This cannot be undone.'
-          : 'Every paid entry will be refunded, then the pool and its '
-              'entries will be removed. This cannot be undone.',
-      confirmLabel: 'Delete pool',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteWager(id),
-      refresh: const ['wagers', 'wallets', 'transactions'],
-      success: '$name was deleted.',
-    );
-    return;
-  }
-
-  // ── Wallets ──────────────────────────────────────────────────────────
-  if (pressed == 'wallets/add' || pressed == 'wallets/deduct') {
-    await adjustWalletDialog(
-      context,
-      ref,
-      userId: '${record['user_id']}',
-      userLabel: firstValue(record, const ['full_name', 'email']),
-      credit: action == 'add',
-    );
-    return;
-  }
-
-  // ── Withdrawals ──────────────────────────────────────────────────────
-  if (pressed == 'withdrawals/approve') {
-    final id = '${record['id']}';
-    final provider = '${record['provider'] ?? 'the payment provider'}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Pay ${_moneyOf(record['amount_cents'])}?',
-      message: 'To ${_bankOf(record['bank_details'])}.\n\n'
-          'The money is sent from your $provider balance to this bank '
-          'account. A transfer that has gone through cannot be taken back '
-          'from here.',
-      confirmLabel: 'Approve and pay',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminActionForMessage(
-      context,
-      ref,
-      action: (repository) => repository.approveWithdrawal(id),
-      refresh: const ['withdrawals', 'wallets', 'transactions'],
-    );
-    return;
-  }
-  if (pressed == 'withdrawals/reject') {
-    await _rejectWithdrawal(context, ref, record);
-    return;
-  }
-  if (pressed == 'withdrawals/verify') {
-    final id = '${record['id']}';
-    await runAdminActionForMessage(
-      context,
-      ref,
-      action: (repository) => repository.verifyWithdrawal(id),
-      refresh: const ['withdrawals', 'wallets', 'transactions'],
-    );
-    return;
-  }
-
-  // ── Notification emails ──────────────────────────────────────────────
-  if (pressed == 'notification-subscriptions/edit') {
-    await _notificationEmailDialog(context, ref, record: record);
-    return;
-  }
-  if (pressed == 'notification-subscriptions/delete') {
-    final id = '${record['id']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Remove $name?',
-      message: 'This address will no longer be emailed about anything.',
-      confirmLabel: 'Remove',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteNotificationEmail(id),
-      refresh: const ['notification-subscriptions'],
-      success: '$name was removed.',
-    );
-    return;
-  }
-
-  // ── Payments ─────────────────────────────────────────────────────────
-  if (pressed == 'payments/verify') {
-    final reference = '${record['reference']}';
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.verifyPayment(reference),
-      refresh: const ['payments', 'wallets', 'transactions'],
-      success: 'Payment checked with the provider.',
-    );
-    return;
-  }
-  if (pressed == 'payments/delete') {
-    final reference = '${record['reference']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Delete this payment record?',
-      message: 'Only the record is removed. Money it already added to the '
-          'wallet stays there. This cannot be undone.',
-      confirmLabel: 'Delete record',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deletePayment(reference),
-      refresh: const ['payments'],
-      success: 'Payment record deleted.',
-    );
-    return;
-  }
-
-  // ── Settings ─────────────────────────────────────────────────────────
-  if (pressed == 'settings/edit') {
-    await _putSetting(context, ref, record: record);
-    return;
-  }
-  if (pressed == 'settings/delete') {
-    final key = '${record['key']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Delete setting "$key"?',
-      message: 'This cannot be undone.',
-      confirmLabel: 'Delete setting',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteSetting(key),
-      refresh: const ['settings'],
-      success: 'Setting deleted.',
-    );
-    return;
-  }
-
-  // ── Teams, challenges, notifications, FPL sign-ins ───────────────────
-  if (pressed == 'teams/delete') {
-    final userId = '${record['user_id']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Unlink $name?',
-      message: 'The user will have no FPL team until they link one again. '
-          'An account that signs in with FPL gets it back at its next '
-          'sign-in.',
-      confirmLabel: 'Unlink team',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteTeam(userId),
-      refresh: const ['teams'],
-      success: 'Team unlinked.',
-    );
-    return;
-  }
-  if (pressed == 'challenges/delete') {
-    final id = '${record['id']}';
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Delete this challenge?',
-      message: 'If it is still open the challenger is refunded first. '
-          'This cannot be undone.',
-      confirmLabel: 'Delete challenge',
-    );
-    if (!confirmed || !context.mounted) return;
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteChallenge(id),
-      refresh: const ['challenges', 'wallets', 'transactions'],
-      success: 'Challenge deleted.',
-    );
-    return;
-  }
-  if (pressed == 'notifications/delete') {
-    final id = '${record['id']}';
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteNotification(id),
-      refresh: const ['notifications'],
-      success: 'Notification deleted.',
-    );
-    return;
-  }
-  if (pressed == 'fpl-logins/delete') {
-    final id = '${record['id']}';
-    await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.deleteFplLogin(id),
-      refresh: const ['fpl-logins'],
-      success: 'Sign-in record deleted.',
-    );
-    return;
-  }
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Dialogs
-// ───────────────────────────────────────────────────────────────────────────
-
-/// The managers in a pool, each with a button to remove (and refund) them.
-class _PoolEntriesDialog extends ConsumerWidget {
-  const _PoolEntriesDialog({required this.poolId, required this.poolName});
-  final String poolId;
-  final String poolName;
+/// One chosen filter value, with a cross to drop it.
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.label, required this.onRemove});
+  final String label;
+  final VoidCallback onRemove;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final members = ref.watch(adminWagerMembersProvider(poolId));
-    return AlertDialog(
-      title: Text('Entries · $poolName', maxLines: 2, overflow: TextOverflow.ellipsis),
-      content: SizedBox(
-        width: 520,
-        child: members.when(
-          loading: () => const SizedBox(
-            height: 120,
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          error: (error, _) => Text(error.toString()),
-          data: (items) => items.isEmpty
-              ? const Text('Nobody has entered this pool yet.')
-              : SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final member in items)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(firstValue(member, const ['full_name', 'email'])),
-                          subtitle: Text(
-                            [
-                              firstValue(member, const ['status']),
-                              // Filled in when the pool is settled.
-                              if (member['rank'] != null)
-                                '${_ordinal(member['rank'])} · ${member['points']} pts',
-                              if (member['payout_cents'] is num &&
-                                  (member['payout_cents']! as num) > 0)
-                                'won ${_moneyOf(member['payout_cents'])}',
-                              if (member['entry_id'] != null)
-                                'FPL ID ${member['entry_id']}',
-                              if (member['team_name'] != null)
-                                '${member['team_name']}',
-                            ].join(' · '),
-                          ),
-                          trailing: IconButton(
-                            tooltip: 'Remove from pool',
-                            color: Theme.of(context).colorScheme.error,
-                            icon: const Icon(Icons.person_remove_outlined),
-                            onPressed: () => _remove(context, ref, member),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-        ),
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: palette.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _remove(
-    BuildContext context,
-    WidgetRef ref,
-    Map<String, Object?> member,
-  ) async {
-    final who = firstValue(member, const ['full_name', 'email']);
-    final confirmed = await confirmAdminAction(
-      context,
-      title: 'Remove $who?',
-      message: 'They leave $poolName and get their stake back, unless the '
-          'pool is already settled.',
-      confirmLabel: 'Remove',
-    );
-    if (!confirmed || !context.mounted) return;
-    final userId = '${member['user_id']}';
-    final done = await runAdminAction(
-      context,
-      ref,
-      action: (repository) => repository.removeWagerMember(poolId, userId),
-      refresh: const ['wagers', 'wallets', 'transactions'],
-      success: '$who was removed from the pool.',
-    );
-    if (done) ref.invalidate(adminWagerMembersProvider(poolId));
-  }
-}
-
-/// "1st", "2nd", "11th" from a rank.
-String _ordinal(Object? rank) {
-  if (rank is! num) return '';
-  final n = rank.toInt();
-  final teen = n % 100 >= 11 && n % 100 <= 13;
-  final suffix = teen
-      ? 'th'
-      : switch (n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', _ => 'th' };
-  return '$n$suffix';
-}
-
-/// Rejects a withdrawal request. The reason is optional; when given, the
-/// user sees it in the app and in their email.
-Future<void> _rejectWithdrawal(
-  BuildContext context,
-  WidgetRef ref,
-  Map<String, Object?> record,
-) async {
-  final id = '${record['id']}';
-  final reason = TextEditingController();
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('Reject ${_moneyOf(record['amount_cents'])}?'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${firstValue(record, const ['full_name', 'email'])} gets the '
-              'money back in their wallet and is told by email.',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: palette.accent,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: reason,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 4,
-              maxLength: 500,
-              decoration: const InputDecoration(
-                labelText: 'Reason (optional)',
-                helperText: 'Shown to the user',
-              ),
+          ),
+          const SizedBox(width: 2),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onRemove,
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: Icon(Icons.close_rounded, size: 14, color: palette.accent),
             ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-            foregroundColor: Theme.of(context).colorScheme.onError,
-          ),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Reject'),
-        ),
-      ],
-    ),
-  );
-  final why = reason.text.trim();
-  reason.dispose();
-  if (accepted != true || !context.mounted) return;
-  await runAdminActionForMessage(
-    context,
-    ref,
-    action: (repository) => repository.rejectWithdrawal(id, why),
-    refresh: const ['withdrawals', 'wallets', 'transactions'],
-  );
-}
-
-/// Adds a notification email, or edits one when [record] is given: the
-/// address and which events it is emailed about.
-Future<void> _notificationEmailDialog(
-  BuildContext context,
-  WidgetRef ref, {
-  Map<String, Object?>? record,
-}) async {
-  final id = record == null ? null : '${record['id']}';
-  final email = TextEditingController(text: '${record?['email'] ?? ''}');
-  // A new address starts with both alerts on; one that hears about nothing
-  // would be pointless. An existing one keeps what it has.
-  var onWithdrawRequest = record == null || record['on_withdraw_request'] == true;
-  var onPoolEnded = record == null || record['on_pool_ended'] == true;
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: Text(id == null ? 'Add notification email' : 'Edit notification email'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: email,
-                autofocus: id == null,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email address'),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Withdrawal requests'),
-                subtitle: const Text('When a user asks to withdraw money'),
-                value: onWithdrawRequest,
-                onChanged: (value) => setState(() => onWithdrawRequest = value),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Pool ended'),
-                subtitle: const Text('When a pool is settled or cancelled'),
-                value: onPoolEnded,
-                onChanged: (value) => setState(() => onPoolEnded = value),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(id == null ? 'Add' : 'Save'),
           ),
         ],
       ),
-    ),
-  );
-  final address = email.text.trim().toLowerCase();
-  email.dispose();
-  if (accepted != true || !context.mounted) return;
-  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(address)) {
-    AppNotice.error(context, 'Enter a valid email address.');
-    return;
+    );
   }
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => id == null
-        ? repository.createNotificationEmail(
-            email: address,
-            onWithdrawRequest: onWithdrawRequest,
-            onPoolEnded: onPoolEnded,
-          )
-        : repository.updateNotificationEmail(
-            id,
-            email: address,
-            onWithdrawRequest: onWithdrawRequest,
-            onPoolEnded: onPoolEnded,
-          ),
-    refresh: const ['notification-subscriptions'],
-    success: id == null ? '$address was added.' : '$address was updated.',
-  );
-}
-
-Future<void> _createUser(BuildContext context, WidgetRef ref) async {
-  final name = TextEditingController();
-  final email = TextEditingController();
-  final phone = TextEditingController();
-  final password = TextEditingController();
-  final role = ValueNotifier<String>('admin');
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Add user'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This creates an account that signs in with an email and '
-              'password. Managers who play sign up themselves with FPL.',
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Full name'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email address'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'Phone (optional)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password',
-                helperText: 'At least 10 characters',
-              ),
-            ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<String>(
-              valueListenable: role,
-              builder: (context, value, _) => DropdownButtonFormField<String>(
-                initialValue: value,
-                decoration: const InputDecoration(
-                  labelText: 'Role',
-                  helperText: 'Only a superadmin can create an admin',
-                ),
-                items: const ['user', 'admin', 'superadmin']
-                    .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (next) {
-                  if (next != null) role.value = next;
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Create'),
-        ),
-      ],
-    ),
-  );
-  final values = <String, Object?>{
-    'full_name': name.text.trim(),
-    'email': email.text.trim(),
-    'phone': phone.text.trim(),
-    'password': password.text,
-    'role': role.value,
-  };
-  name.dispose();
-  email.dispose();
-  phone.dispose();
-  password.dispose();
-  role.dispose();
-  if (accepted != true || !context.mounted) return;
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => repository.createUser(values),
-    refresh: const ['users', 'wallets'],
-    success: '${values['full_name']} was created.',
-  );
-}
-
-Future<void> _createWager(BuildContext context, WidgetRef ref) async {
-  final name = TextEditingController();
-  final gameweek = TextEditingController();
-  final stake = TextEditingController(text: '1000');
-  final rules = TextEditingController();
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Create pool'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'The pool is created as a draft. Approve it to open it for '
-              'entries.',
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: gameweek,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Gameweek'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: stake,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Stake (₦)',
-                helperText: 'At least ₦1,000',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: rules,
-              minLines: 3,
-              maxLines: 6,
-              decoration: const InputDecoration(labelText: 'Rules'),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Create'),
-        ),
-      ],
-    ),
-  );
-  final poolName = name.text.trim();
-  final week = int.tryParse(gameweek.text.trim());
-  final stakeCents = nairaToCents(stake.text);
-  final poolRules = rules.text.trim();
-  name.dispose();
-  gameweek.dispose();
-  stake.dispose();
-  rules.dispose();
-  if (accepted != true || !context.mounted) return;
-  if (poolName.length < 3 || week == null || stakeCents == null) {
-    AppNotice.error(context, 'A name, a gameweek and a stake are required.');
-    return;
-  }
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => repository.createWager({
-      'name': poolName,
-      'gameweek': week,
-      'stake_cents': stakeCents,
-      'visibility': 'public',
-      'approval_required': false,
-      'rules': poolRules,
-      'draw_method': 'split',
-    }),
-    refresh: const ['wagers'],
-    success: '$poolName was created as a draft. Approve it to open it.',
-  );
-}
-
-Future<void> _editWager(
-  BuildContext context,
-  WidgetRef ref,
-  Map<String, Object?> record,
-) async {
-  final id = '${record['id']}';
-  final isAuto = '${record['pool_kind']}' == 'auto';
-  final originalName = '${record['name'] ?? ''}';
-  final originalRules = '${record['rules'] ?? ''}';
-  final originalMax = record['max_members'] is num
-      ? '${(record['max_members']! as num).toInt()}'
-      : '';
-  final name = TextEditingController(text: originalName);
-  final rules = TextEditingController(text: originalRules);
-  final maxMembers = TextEditingController(text: originalMax);
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Edit pool'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: rules,
-              minLines: 3,
-              maxLines: 6,
-              decoration: const InputDecoration(labelText: 'Rules'),
-            ),
-            if (!isAuto) ...[
-              const SizedBox(height: 12),
-              TextField(
-                controller: maxMembers,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Maximum managers',
-                  helperText: 'Between 2 and 100,000',
-                ),
-              ),
-            ] else ...[
-              const SizedBox(height: 12),
-              const Text(
-                'Auto pools keep their standard stake and size; only the '
-                'name and rules can be edited.',
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
-  final newName = name.text.trim();
-  final newRules = rules.text.trim();
-  final newMax = maxMembers.text.trim();
-  name.dispose();
-  rules.dispose();
-  maxMembers.dispose();
-  if (accepted != true || !context.mounted) return;
-
-  // Send only what actually changed.
-  final changes = <String, Object?>{
-    if (newName != originalName) 'name': newName,
-    if (newRules != originalRules) 'rules': newRules,
-    if (!isAuto && newMax != originalMax && int.tryParse(newMax) != null)
-      'max_members': int.parse(newMax),
-  };
-  if (changes.isEmpty) {
-    AppNotice.info(context, 'Nothing was changed.');
-    return;
-  }
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => repository.updateWager(id, changes),
-    refresh: const ['wagers'],
-    success: 'Pool updated.',
-  );
-}
-
-Future<void> _changeWagerStatus(
-  BuildContext context,
-  WidgetRef ref,
-  Map<String, Object?> record,
-) async {
-  final id = '${record['id']}';
-  final current = '${record['status'] ?? 'draft'}';
-  final status = ValueNotifier<String>(current);
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Change status'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ValueListenableBuilder<String>(
-              valueListenable: status,
-              builder: (context, value, _) => DropdownButtonFormField<String>(
-                initialValue: value,
-                decoration: const InputDecoration(labelText: 'Pool status'),
-                // "settled" is not offered: a pool is settled by scoring
-                // and paying it (Settle now, or the worker), not by a label.
-                items: const [
-                  'draft',
-                  'open',
-                  'locked',
-                  'scoring',
-                  'cancelled',
-                ]
-                    .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (next) {
-                  if (next != null) status.value = next;
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Open approves a draft pool. Cancelled refunds every paid '
-              'entry. A locked pool is settled and paid automatically once '
-              'FPL finalises its gameweek, or with Settle now.',
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Update'),
-        ),
-      ],
-    ),
-  );
-  final next = status.value;
-  status.dispose();
-  if (accepted != true || next == current || !context.mounted) return;
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => repository.updateWagerStatus(id, next),
-    refresh: const ['wagers', 'wallets', 'transactions', 'notifications'],
-    success: 'Pool status is now $next.',
-  );
-}
-
-Future<void> _putSetting(
-  BuildContext context,
-  WidgetRef ref, {
-  Map<String, Object?>? record,
-}) async {
-  final key = TextEditingController(text: record?['key']?.toString() ?? '');
-  final value = TextEditingController(
-    text: record == null ? 'true' : prettyJson(record['value']),
-  );
-  final accepted = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(record == null ? 'Add setting' : 'Edit setting'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: key,
-              enabled: record == null,
-              decoration: const InputDecoration(labelText: 'Key'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: value,
-              minLines: 3,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Value (JSON)',
-                helperText: 'For example true, 5, "text" or {"a": 1}',
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
-  final settingKey = key.text.trim();
-  final raw = value.text;
-  key.dispose();
-  value.dispose();
-  if (accepted != true || !context.mounted) return;
-  if (settingKey.isEmpty) {
-    AppNotice.error(context, 'A key is required.');
-    return;
-  }
-  final Object? decoded;
-  try {
-    decoded = jsonDecode(raw);
-  } on FormatException {
-    AppNotice.error(context, 'The value must be valid JSON.');
-    return;
-  }
-  await runAdminAction(
-    context,
-    ref,
-    action: (repository) => repository.putSetting(settingKey, decoded),
-    refresh: const ['settings'],
-    success: 'Setting saved.',
-  );
 }

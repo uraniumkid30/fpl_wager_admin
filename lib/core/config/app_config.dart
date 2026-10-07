@@ -4,7 +4,7 @@
 ///
 ///   flutter run --dart-define=API_BASE_URL=https://api.example.com
 ///
-/// It must be the same server the main FPLwager app uses.
+/// It must be the same server the main FPLboardman app uses.
 class AppConfig {
   const AppConfig._();
 

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpl_wager_admin/app/theme/app_theme.dart';
 import 'package:fpl_wager_admin/core/ui/app_notice.dart';
 import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
+import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_actions.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
 import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
@@ -31,85 +32,92 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
     super.dispose();
   }
 
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/resources/users');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final value = ref.watch(adminUserProvider(widget.userId));
     final busy = ref.watch(adminActionProvider).isLoading;
-    return Scaffold(
-      appBar: AppBar(title: const Text('User account')),
-      body: AsyncContent(
-        value: value,
-        onRetry: () => ref.invalidate(adminUserProvider(widget.userId)),
-        data: (user) {
-          if (_loadedId != user.id) {
-            _loadedId = user.id;
-            _name.text = user.fullName;
-            _phone.text = user.phone;
-          }
-          return ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+    return AsyncContent(
+      value: value,
+      onRetry: () => ref.invalidate(adminUserProvider(widget.userId)),
+      data: (user) {
+        if (_loadedId != user.id) {
+          _loadedId = user.id;
+          _name.text = user.fullName;
+          _phone.text = user.phone;
+        }
+        final palette = Palette.of(context);
+        final wide = MediaQuery.sizeOf(context).width >= 1100;
+
+        final account = SectionCard(
+          title: 'Account',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              GradientPanel(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      user.fullName,
-                      style: Theme.of(context).textTheme.titleLarge,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  StatusPill(user.role, tone: Tone.info),
+                  StatusPill(user.status),
+                  StatusPill(
+                    user.emailVerified ? 'Email verified' : 'Email not verified',
+                    tone: user.emailVerified ? Tone.success : Tone.warning,
+                  ),
+                  if (user.fplEntryId != null)
+                    StatusPill(
+                      'FPL ID ${user.fplEntryId}',
+                      tone: Tone.neutral,
+                      dot: false,
                     ),
-                    const SizedBox(height: 4),
-                    Text(user.email),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        StatusPill(user.role),
-                        StatusPill(user.status),
-                        StatusPill(
-                          user.emailVerified
-                              ? 'Email verified'
-                              : 'Email not verified',
-                        ),
-                        if (user.fplEntryId != null)
-                          StatusPill('FPL ID ${user.fplEntryId}'),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SelectableText(
-                            'User ID: ${user.id}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Copy user ID',
-                          icon: const Icon(Icons.copy_rounded, size: 18),
-                          onPressed: () async {
-                            await Clipboard.setData(ClipboardData(text: user.id));
-                            if (context.mounted) {
-                              AppNotice.info(context, 'User ID copied.');
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                ],
               ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      user.id,
+                      style: TextStyle(
+                        color: palette.muted,
+                        fontFamily: 'monospace',
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copy user ID',
+                    icon: const Icon(Icons.copy_rounded, size: 17),
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: user.id));
+                      if (context.mounted) {
+                        AppNotice.info(context, 'User ID copied.');
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
 
-              // ── Wallet ───────────────────────────────────────────────
-              const SizedBox(height: 22),
-              Text('Wallet', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 10),
-              _WalletPanel(user: user, busy: busy),
+        final wallet = SectionCard(
+          title: 'Wallet',
+          child: _WalletPanel(user: user, busy: busy),
+        );
 
-              // ── Details ──────────────────────────────────────────────
-              const SizedBox(height: 22),
-              Text('Details', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 10),
+        final details = SectionCard(
+          title: 'Details',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               TextField(
                 controller: _name,
                 decoration: const InputDecoration(labelText: 'Full name'),
@@ -120,7 +128,7 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Phone'),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               FilledButton(
                 onPressed: busy
                     ? null
@@ -133,7 +141,16 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
                         ),
                 child: const Text('Save details'),
               ),
-              const SizedBox(height: 22),
+            ],
+          ),
+        );
+
+        final access = SectionCard(
+          title: 'Access',
+          subtitle: 'Changes here are saved as soon as you choose them.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               DropdownButtonFormField<String>(
                 key: ValueKey('status-${user.status}'),
                 initialValue: user.status,
@@ -152,7 +169,7 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
                         }
                       },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 key: ValueKey('role-${user.role}'),
                 initialValue: user.role,
@@ -171,42 +188,79 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
                         }
                       },
               ),
-
-              // ── Other actions ────────────────────────────────────────
-              const SizedBox(height: 28),
-              OutlinedButton.icon(
-                onPressed: busy
-                    ? null
-                    : () => sendNotificationDialog(
-                          context,
-                          ref,
-                          userId: user.id,
-                          userLabel: 'To ${user.fullName}',
-                        ),
-                icon: const Icon(Icons.notifications_outlined),
-                label: const Text('Send notification'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
-                ),
-                onPressed: busy ? null : () => _delete(user),
-                icon: const Icon(Icons.delete_forever_outlined),
-                label: const Text('Delete user permanently'),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'To block someone without losing their records, set their '
-                'status to deactivated or banned instead of deleting them.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
             ],
-          );
-        },
-      ),
+          ),
+        );
+
+        const gap = SizedBox(height: 14);
+        return PageBody(
+          maxWidth: 1180,
+          children: [
+            FadeSlideIn(
+              child: PageHeader(
+                title: user.fullName,
+                subtitle: user.email,
+                onBack: _back,
+                actions: [
+                  OutlinedButton.icon(
+                    onPressed: busy
+                        ? null
+                        : () => sendNotificationDialog(
+                              context,
+                              ref,
+                              userId: user.id,
+                              userLabel: 'To ${user.fullName}',
+                            ),
+                    icon: const Icon(Icons.notifications_outlined, size: 18),
+                    label: const Text('Send notification'),
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                    onPressed: busy ? null : () => _delete(user),
+                    icon: const Icon(Icons.delete_forever_outlined, size: 18),
+                    label: const Text('Delete user'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 60),
+              child: wide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [account, gap, wallet],
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [details, gap, access],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [account, gap, wallet, gap, details, gap, access],
+                    ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'To block someone without losing their records, set their '
+              'status to deactivated or banned instead of deleting them.',
+              style: TextStyle(color: palette.muted, fontSize: 12.5),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -248,7 +302,7 @@ class _AdminUserScreenState extends ConsumerState<AdminUserScreen> {
       ],
       success: '${user.fullName} was deleted.',
     );
-    if (done && mounted) context.pop();
+    if (done && mounted) _back();
   }
 }
 
@@ -261,10 +315,10 @@ class _WalletPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final wallet = ref.watch(adminWalletProvider(user.id));
-    final available = wallet.value?['available_cents'];
-    final locked = wallet.value?['locked_cents'];
-    return GradientPanel(
-      child: Column(
+    final balances = wallet.orNull;
+    final available = balances?['available_cents'];
+    final locked = balances?['locked_cents'];
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (wallet.isLoading && !wallet.hasValue)
@@ -275,8 +329,7 @@ class _WalletPanel extends ConsumerWidget {
             Text(
               available is num ? money(available.toInt()) : '—',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.purple,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 4),
@@ -324,7 +377,6 @@ class _WalletPanel extends ConsumerWidget {
             ],
           ),
         ],
-      ),
     );
   }
 }

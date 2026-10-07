@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
 import 'package:fpl_wager_admin/core/ui/app_notice.dart';
 import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
+import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
 import 'package:fpl_wager_admin/features/admin/data/admin_repository.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
 
@@ -38,16 +38,18 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
   Widget build(BuildContext context) {
     final current = ref.watch(adminMyTeamProvider);
     final found = _found;
-    return Scaffold(
-      appBar: AppBar(title: const Text('My FPL team')),
-      body: SafeArea(
-        child: Center(
-          child: ListView(
-            shrinkWrap: true,
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+    return PageBody(
+      maxWidth: 620,
+      children: [
+        const FadeSlideIn(
+          child: PageHeader(
+            title: 'My FPL team',
+            subtitle: 'Link your own FPL team to this administrator account.',
+          ),
+        ),
+        const SizedBox(height: 18),
+        FadeSlideIn(
+          delay: const Duration(milliseconds: 60),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -138,11 +140,8 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
                     ],
                   ],
                 ),
-              ),
-            ],
-          ),
         ),
-      ),
+      ],
     );
   }
 

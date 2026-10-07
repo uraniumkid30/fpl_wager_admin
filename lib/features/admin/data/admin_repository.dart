@@ -26,11 +26,86 @@ class AdminRepository {
   Future<AdminDashboardSummary> dashboard() async =>
       AdminDashboardSummary.fromJson(await _client.get('/admin/dashboard'));
 
+  /// The most records a list page loads. Beyond this the newest are shown
+  /// and the page says so.
+  static const maxRows = 3000;
+  static const _pageSize = 100;
+
   /// Lists one resource: users, wagers, payments, wallets, transactions,
   /// settings, teams, challenges, notifications, gameweeks, audit-logs,
   /// fpl-logins, withdrawals or notification-subscriptions.
-  Future<List<Map<String, Object?>>> collection(String resource) async =>
-      _items(await _client.get('/admin/$resource'));
+  ///
+  /// The server hands lists out a page at a time. This reads the pages one
+  /// after another, newest first, so the list page can search, filter, sort
+  /// and export everything rather than only the first screenful.
+  Future<List<Map<String, Object?>>> collection(String resource) async {
+    final all = <Map<String, Object?>>[];
+    for (var page = 1; all.length < maxRows; page++) {
+      final body = await _client.get(
+        '/admin/$resource',
+        query: {'page': page, 'per_page': _pageSize},
+      );
+      final items = _items(body);
+      all.addAll(items);
+      // A resource that is not paged reports no page size and has already
+      // sent everything; a short page is the last one.
+      final limit = body['limit'];
+      if (limit is! num || limit <= 0 || items.length < limit) break;
+    }
+    return all.length > maxRows ? all.sublist(0, maxRows) : all;
+  }
+
+  /// The newest few records of a resource, for the dashboard.
+  Future<List<Map<String, Object?>>> recent(
+    String resource, {
+    int count = 6,
+  }) async =>
+      _items(
+        await _client.get(
+          '/admin/$resource',
+          query: {'page': 1, 'per_page': count},
+        ),
+      );
+
+  /// Fourteen days of sign-ups and money movement, plus running totals, for
+  /// the dashboard's charts.
+  Future<Map<String, Object?>> stats() => _client.get('/admin/stats');
+
+  // ── Auto pools ─────────────────────────────────────────────────────────
+
+  /// Whether auto pools are running at all, and the stakes they are offered
+  /// at.
+  Future<({bool enabled, List<Map<String, Object?>> tiers})> autoPools() async {
+    final body = await _client.get('/admin/auto-pools');
+    return (enabled: body['enabled'] != false, tiers: _items(body));
+  }
+
+  /// Switches every auto pool on or off. Pools that are already open stay
+  /// open; this only decides whether new ones are created.
+  Future<void> setAutoPoolsEnabled(bool enabled) async {
+    await _client.put('/admin/auto-pools/status', data: {'enabled': enabled});
+  }
+
+  /// Adds a stake at which an auto pool is offered every gameweek.
+  Future<void> createAutoPoolTier(int stakeCents) async {
+    await _client.post('/admin/auto-pools', data: {'stake_cents': stakeCents});
+  }
+
+  /// Pauses or resumes one stake. Paused, its open pool carries on but no
+  /// new one is created after it.
+  Future<void> setAutoPoolTierEnabled(String id, bool enabled) async {
+    await _client.patch('/admin/auto-pools/$id', data: {'enabled': enabled});
+  }
+
+  /// Removes a stake for good. With [cancelOpen], its open pool is cancelled
+  /// and everyone in it refunded; otherwise that pool plays out. Returns how
+  /// many entries were refunded.
+  Future<int> deleteAutoPoolTier(String id, {required bool cancelOpen}) async {
+    final body = await _client.delete(
+      '/admin/auto-pools/$id${cancelOpen ? '?cancel_open=true' : ''}',
+    );
+    return (body['refunded'] as num? ?? 0).toInt();
+  }
 
   // ── Users ──────────────────────────────────────────────────────────────
 

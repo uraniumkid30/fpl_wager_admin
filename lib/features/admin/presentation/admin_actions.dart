@@ -88,6 +88,20 @@ Future<bool> confirmAdminAction(
   return confirmed == true;
 }
 
+/// Disposes a dialog's text controllers once the dialog has finished closing.
+///
+/// `showDialog` returns while the dialog is still on screen, fading out, and
+/// its text fields are still attached to their controllers. Disposing a
+/// controller at that moment makes the field complain if it rebuilds, so
+/// this waits until the closing animation is over.
+void disposeAfterDialog(List<ChangeNotifier> controllers) {
+  Future<void>.delayed(const Duration(milliseconds: 600), () {
+    for (final controller in controllers) {
+      controller.dispose();
+    }
+  });
+}
+
 /// Turns a typed naira amount ("5,000" or "5000.50") into cents, or null if
 /// it is not a positive amount.
 int? nairaToCents(String text) {
@@ -167,8 +181,7 @@ Future<void> adjustWalletDialog(
   );
   final cents = nairaToCents(amount.text);
   final why = reason.text.trim();
-  amount.dispose();
-  reason.dispose();
+  disposeAfterDialog([amount, reason]);
   if (accepted != true || !context.mounted) return;
   if (cents == null) {
     AppNotice.error(context, 'Enter an amount greater than zero.');
@@ -255,9 +268,7 @@ Future<void> sendNotificationDialog(
   final to = target.text.trim();
   final heading = title.text.trim();
   final message = body.text.trim();
-  target.dispose();
-  title.dispose();
-  body.dispose();
+  disposeAfterDialog([target, title, body]);
   if (accepted != true || !context.mounted) return;
   if (to.isEmpty || heading.length < 2 || message.isEmpty) {
     AppNotice.error(context, 'A user, a title and a message are all required.');
