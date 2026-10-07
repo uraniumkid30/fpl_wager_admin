@@ -1093,7 +1093,7 @@ class _GroupHeader extends StatelessWidget {
   final String label;
   final int count;
 
-  /// A sum to show at the right, e.g. "Amount ₦120,000"; null for none.
+  /// A sum to show at the right, e.g. "Amount ₦120,000.00"; null for none.
   final String? total;
   final bool open;
   final VoidCallback onTap;

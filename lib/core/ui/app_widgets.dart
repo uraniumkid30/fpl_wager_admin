@@ -3,11 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpl_wager_admin/app/theme/app_theme.dart';
 import 'package:intl/intl.dart';
 
-/// "₦12,500" from an amount in cents (kobo), rounded to the naira.
+/// An amount of money as people read it: "₦10.00" for 1000.
+///
+/// Every amount the API sends is in cents (kobo), 100 to the naira, and this
+/// is the one place that turns one into text. It always shows the two
+/// decimal places, so ₦10.50 is never rounded to ₦11.
 String money(int cents) => NumberFormat.currency(
       locale: 'en_NG',
       symbol: '₦',
-      decimalDigits: 0,
+      decimalDigits: 2,
     ).format(cents / 100);
 
 /// "₦1.2M", "₦45K" — for chart axes and other tight spaces.

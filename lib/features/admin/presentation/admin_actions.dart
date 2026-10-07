@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpl_wager_admin/core/ui/app_notice.dart';
+import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
 import 'package:fpl_wager_admin/features/admin/data/admin_repository.dart';
 import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
 
@@ -151,10 +152,30 @@ Future<void> adjustWalletDialog(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Amount (₦)',
-                helperText: 'In naira, for example 5000',
+                helperText: 'In naira. 5000 is ₦5,000.00; 10.50 is ₦10.50',
               ),
             ),
-            const SizedBox(height: 12),
+            // Spells the amount out as it is typed, so there is no doubt
+            // about what will be added or taken.
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: amount,
+              builder: (context, typed, _) {
+                final cents = nairaToCents(typed.text);
+                if (cents == null) return const SizedBox(height: 12);
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 12),
+                  child: Text(
+                    credit
+                        ? 'This adds ${money(cents)} to the wallet.'
+                        : 'This takes ${money(cents)} from the wallet.',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                );
+              },
+            ),
             TextField(
               controller: reason,
               minLines: 2,
@@ -200,7 +221,9 @@ Future<void> adjustWalletDialog(
       reason: why,
     ),
     refresh: const ['wallets', 'transactions'],
-    success: credit ? 'Money added to the wallet.' : 'Money deducted from the wallet.',
+    success: credit
+        ? '${money(cents)} added to the wallet.'
+        : '${money(cents)} deducted from the wallet.',
   );
   if (done) ref.invalidate(adminWalletProvider(userId));
 }
