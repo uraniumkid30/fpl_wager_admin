@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/features/auth/data/auth_repository.dart';
-import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
+import 'package:fplboardman_admin/features/auth/data/auth_repository.dart';
+import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
 
 final authControllerProvider =
     AsyncNotifierProvider<AuthController, AuthSession?>(AuthController.new);

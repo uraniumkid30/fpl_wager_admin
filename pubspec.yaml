@@ -1,4 +1,4 @@
-name: fpl_wager_admin
+name: fplboardman_admin
 description: "FPLboardman admin - manage users, pools, wallets and payments."
 publish_to: 'none'
 version: 1.0.0+1

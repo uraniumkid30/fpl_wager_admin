@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_actions.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_actions.dart';
 
 void main() {
   test('nairaToCents converts typed naira amounts to cents', () {

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/core/ui/app_notice.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
-import 'package:fpl_wager_admin/features/admin/data/admin_repository.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
+import 'package:fplboardman_admin/core/ui/app_notice.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/core/ui/ui_kit.dart';
+import 'package:fplboardman_admin/features/admin/data/admin_repository.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_providers.dart';
 
 /// Lets the signed-in administrator link their own FPL team by its ID.
 ///

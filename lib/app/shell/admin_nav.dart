@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_resources.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_resources.dart';
 
 /// One destination in the sidebar.
 class NavItem {
@@ -64,6 +64,12 @@ final List<NavGroup> adminNavigation = [
         icon: Icons.autorenew_rounded,
         route: '/auto-pools',
         keywords: 'automatic standard stakes tiers stop pause',
+      ),
+      const NavItem(
+        label: 'Pool fees',
+        icon: Icons.percent_rounded,
+        route: '/pool-fees',
+        keywords: 'delete fee fine cancel custom private percentage',
       ),
       _resource('challenges'),
       _resource('gameweeks'),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/features/auth/presentation/auth_controller.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
 
 /// Administrator sign-in: email and password.
 class LoginScreen extends ConsumerStatefulWidget {

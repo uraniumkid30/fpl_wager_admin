@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/features/admin/data/admin_repository.dart';
-import 'package:fpl_wager_admin/features/admin/domain/admin_models.dart';
-import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
+import 'package:fplboardman_admin/features/admin/data/admin_repository.dart';
+import 'package:fplboardman_admin/features/admin/domain/admin_models.dart';
+import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
 
 final adminDashboardProvider = FutureProvider.autoDispose<AdminDashboardSummary>(
   (ref) => ref.watch(adminRepositoryProvider).dashboard(),
@@ -27,6 +27,11 @@ final adminStatsProvider = FutureProvider.autoDispose<Map<String, Object?>>(
 final adminAutoPoolsProvider = FutureProvider.autoDispose<
     ({bool enabled, List<Map<String, Object?>> tiers})>(
   (ref) => ref.watch(adminRepositoryProvider).autoPools(),
+);
+
+/// The fee for deleting a user's pool after others have joined, in percent.
+final adminPoolFeeProvider = FutureProvider.autoDispose<double>(
+  (ref) => ref.watch(adminRepositoryProvider).poolDeleteFeePercent(),
 );
 
 /// What is waiting for an administrator: custom pools to approve and

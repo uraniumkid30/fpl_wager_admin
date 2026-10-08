@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/core/network/api_client.dart';
-import 'package:fpl_wager_admin/core/network/providers.dart';
-import 'package:fpl_wager_admin/features/admin/domain/admin_models.dart';
-import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
+import 'package:fplboardman_admin/core/network/api_client.dart';
+import 'package:fplboardman_admin/core/network/providers.dart';
+import 'package:fplboardman_admin/features/admin/domain/admin_models.dart';
+import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
 import 'package:uuid/uuid.dart';
 
 final adminRepositoryProvider = Provider<AdminRepository>(
@@ -105,6 +105,23 @@ class AdminRepository {
       '/admin/auto-pools/$id${cancelOpen ? '?cancel_open=true' : ''}',
     );
     return (body['refunded'] as num? ?? 0).toInt();
+  }
+
+  // ── Pool fees ──────────────────────────────────────────────────────────
+
+  /// The fee a creator pays to delete their pool after another manager has
+  /// joined, as a percentage of one entry fee.
+  Future<double> poolDeleteFeePercent() async {
+    final body = await _client.get('/admin/pool-settings');
+    return (body['delete_fee_percent'] as num? ?? 5).toDouble();
+  }
+
+  /// Changes that fee. [percent] is 0 to 100 with up to two decimals.
+  Future<void> setPoolDeleteFeePercent(double percent) async {
+    await _client.put(
+      '/admin/pool-settings',
+      data: {'delete_fee_percent': percent},
+    );
   }
 
   // ── Users ──────────────────────────────────────────────────────────────

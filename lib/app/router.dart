@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/app/shell/admin_shell.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_resource_screen.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_user_screen.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/auto_pools_screen.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/dashboard_screen.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/my_team_screen.dart';
-import 'package:fpl_wager_admin/features/auth/presentation/auth_controller.dart';
-import 'package:fpl_wager_admin/features/auth/presentation/login_screen.dart';
+import 'package:fplboardman_admin/app/shell/admin_shell.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_resource_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_user_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/auto_pools_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/dashboard_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/my_team_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/pool_fees_screen.dart';
+import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
+import 'package:fplboardman_admin/features/auth/presentation/login_screen.dart';
 import 'package:go_router/go_router.dart';
 
 /// Routes for the admin app. Nothing but the sign-in page is reachable
@@ -58,6 +59,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/auto-pools',
             pageBuilder: (_, state) => _page(state, const AutoPoolsScreen()),
+          ),
+          GoRoute(
+            path: '/pool-fees',
+            pageBuilder: (_, state) => _page(state, const PoolFeesScreen()),
           ),
           GoRoute(
             path: '/users/:userId',

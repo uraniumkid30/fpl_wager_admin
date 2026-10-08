@@ -440,7 +440,7 @@
       "languageVersion": "3.4"
     },
     {
-      "name": "fpl_wager_admin",
+      "name": "fplboardman_admin",
       "rootUri": "../",
       "packageUri": "lib/",
       "languageVersion": "3.9"

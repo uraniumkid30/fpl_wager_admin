@@ -1,10 +1,10 @@
 {
   "roots": [
-    "fpl_wager_admin"
+    "fplboardman_admin"
   ],
   "packages": [
     {
-      "name": "fpl_wager_admin",
+      "name": "fplboardman_admin",
       "version": "1.0.0+1",
       "dependencies": [
         "dio",

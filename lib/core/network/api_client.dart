@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import 'package:fpl_wager_admin/core/errors/app_exception.dart';
+import 'package:fplboardman_admin/core/errors/app_exception.dart';
 
 class ApiClient {
   ApiClient(String baseUrl)

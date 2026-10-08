@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
 import 'package:intl/intl.dart';
 
 /// An amount of money as people read it: "₦10.00" for 1000.

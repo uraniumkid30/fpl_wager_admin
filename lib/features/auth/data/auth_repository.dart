@@ -1,9 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/core/errors/app_exception.dart';
-import 'package:fpl_wager_admin/core/network/api_client.dart';
-import 'package:fpl_wager_admin/core/network/providers.dart';
-import 'package:fpl_wager_admin/core/storage/session_store.dart';
-import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
+import 'package:fplboardman_admin/core/errors/app_exception.dart';
+import 'package:fplboardman_admin/core/network/api_client.dart';
+import 'package:fplboardman_admin/core/network/providers.dart';
+import 'package:fplboardman_admin/core/storage/session_store.dart';
+import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepository(

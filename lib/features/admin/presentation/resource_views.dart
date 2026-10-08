@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/record_actions.dart';
+import 'package:fplboardman_admin/core/ui/ui_kit.dart';
+import 'package:fplboardman_admin/features/admin/presentation/record_actions.dart';
 import 'package:intl/intl.dart';
 
 /// How a column's values are shown, sorted and exported.

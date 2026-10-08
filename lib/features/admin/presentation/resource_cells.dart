@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/resource_views.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/features/admin/presentation/resource_views.dart';
 
 /// One value of a record, drawn the way its column asks: a pill for a
 /// status, a tick for a flag, coloured money, and so on. Used by both the

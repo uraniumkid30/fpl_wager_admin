@@ -2,15 +2,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_notice.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_actions.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_resources.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/record_actions.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/resource_cells.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/resource_views.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_notice.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/core/ui/ui_kit.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_actions.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_resources.dart';
+import 'package:fplboardman_admin/features/admin/presentation/record_actions.dart';
+import 'package:fplboardman_admin/features/admin/presentation/resource_cells.dart';
+import 'package:fplboardman_admin/features/admin/presentation/resource_views.dart';
 
 /// What [showRecordPanel] returns when the administrator asks to open the
 /// account of the user a record belongs to.

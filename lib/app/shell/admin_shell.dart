@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/app/shell/admin_nav.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/core/ui/ui_prefs.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
-import 'package:fpl_wager_admin/features/auth/domain/auth_models.dart';
-import 'package:fpl_wager_admin/features/auth/presentation/auth_controller.dart';
+import 'package:fplboardman_admin/app/shell/admin_nav.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/core/ui/ui_prefs.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_providers.dart';
+import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
+import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
 import 'package:go_router/go_router.dart';
 
 /// The frame around every signed-in page: the sidebar on the left, the bar

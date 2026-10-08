@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/core/ui/charts.dart';
-import 'package:fpl_wager_admin/core/ui/ui_kit.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_actions.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/admin_providers.dart';
-import 'package:fpl_wager_admin/features/admin/presentation/record_actions.dart';
-import 'package:fpl_wager_admin/features/auth/presentation/auth_controller.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/core/ui/charts.dart';
+import 'package:fplboardman_admin/core/ui/ui_kit.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_actions.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_providers.dart';
+import 'package:fplboardman_admin/features/admin/presentation/record_actions.dart';
+import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 

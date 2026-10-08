@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
 
 /// One line on a [SeriesChart].
 class ChartSeries {

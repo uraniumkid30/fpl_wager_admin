@@ -1,7 +1,7 @@
 # Putting the FPLwager web apps online
 
 This covers both web apps: the main app (`fpl_wager`, the one users see) and
-the admin app (`fpl_wager_admin`). Each is built into a folder of static
+the admin app (`fplboardman_admin`). Each is built into a folder of static
 files, so any static host can serve it.
 
 ## What works on the web

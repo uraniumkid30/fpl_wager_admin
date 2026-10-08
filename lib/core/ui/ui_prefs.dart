@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpl_wager_admin/core/network/providers.dart';
+import 'package:fplboardman_admin/core/network/providers.dart';
 
 /// How the administrator likes the app to look. Remembered on this device.
 class UiPrefs {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fpl_wager_admin/app/theme/app_theme.dart';
-import 'package:fpl_wager_admin/core/ui/app_widgets.dart';
-import 'package:fpl_wager_admin/core/ui/charts.dart';
+import 'package:fplboardman_admin/app/theme/app_theme.dart';
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/core/ui/charts.dart';
 import 'package:intl/intl.dart';
 
 /// The standard bordered card.

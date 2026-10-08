@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/fpl_wager_admin.iml" filepath="$PROJECT_DIR$/fpl_wager_admin.iml" />
-      <module fileurl="file://$PROJECT_DIR$/android/fpl_wager_admin_android.iml" filepath="$PROJECT_DIR$/android/fpl_wager_admin_android.iml" />
+      <module fileurl="file://$PROJECT_DIR$/fplboardman_admin.iml" filepath="$PROJECT_DIR$/fplboardman_admin.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/fplboardman_admin_android.iml" filepath="$PROJECT_DIR$/android/fplboardman_admin_android.iml" />
     </modules>
   </component>
 </project>
