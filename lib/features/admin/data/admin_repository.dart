@@ -5,6 +5,14 @@ import 'package:fplboardman_admin/features/admin/domain/admin_models.dart';
 import 'package:fplboardman_admin/features/auth/domain/auth_models.dart';
 import 'package:uuid/uuid.dart';
 
+/// The rules for pools users create (see AdminRepository.poolRules).
+typedef PoolRules = ({
+  double deleteFeePercent,
+  int winners,
+  int entrants,
+  int maxWinners,
+});
+
 final adminRepositoryProvider = Provider<AdminRepository>(
   (ref) => AdminRepository(ref.watch(apiClientProvider)),
 );
@@ -109,11 +117,37 @@ class AdminRepository {
 
   // ── Pool fees ──────────────────────────────────────────────────────────
 
-  /// The fee a creator pays to delete their pool after another manager has
-  /// joined, as a percentage of one entry fee.
-  Future<double> poolDeleteFeePercent() async {
+  /// The rules for pools users create: the delete fee (a percentage of one
+  /// entry fee) and the winners limit (at most `winners` paid places for
+  /// every `entrants` managers, never more than `maxWinners`).
+  Future<PoolRules> poolRules() async {
     final body = await _client.get('/admin/pool-settings');
-    return (body['delete_fee_percent'] as num? ?? 5).toDouble();
+    final rule = body['winner_rule'];
+    final map = rule is Map ? rule : const {};
+    return (
+      deleteFeePercent: (body['delete_fee_percent'] as num? ?? 5).toDouble(),
+      winners: (map['winners'] as num? ?? 3).toInt(),
+      entrants: (map['entrants'] as num? ?? 5).toInt(),
+      maxWinners: (map['max_winners'] as num? ?? 50).toInt(),
+    );
+  }
+
+  /// Changes the winners limit for pools created from now on.
+  Future<void> setWinnerRule({
+    required int winners,
+    required int entrants,
+    required int maxWinners,
+  }) async {
+    await _client.put(
+      '/admin/pool-settings',
+      data: {
+        'winner_rule': {
+          'winners': winners,
+          'entrants': entrants,
+          'max_winners': maxWinners,
+        },
+      },
+    );
   }
 
   /// Changes that fee. [percent] is 0 to 100 with up to two decimals.

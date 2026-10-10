@@ -29,9 +29,9 @@ final adminAutoPoolsProvider = FutureProvider.autoDispose<
   (ref) => ref.watch(adminRepositoryProvider).autoPools(),
 );
 
-/// The fee for deleting a user's pool after others have joined, in percent.
-final adminPoolFeeProvider = FutureProvider.autoDispose<double>(
-  (ref) => ref.watch(adminRepositoryProvider).poolDeleteFeePercent(),
+/// The delete fee and winners limit for pools users create.
+final adminPoolRulesProvider = FutureProvider.autoDispose<PoolRules>(
+  (ref) => ref.watch(adminRepositoryProvider).poolRules(),
 );
 
 /// What is waiting for an administrator: custom pools to approve and

@@ -8,7 +8,7 @@ import 'package:fplboardman_admin/features/admin/presentation/admin_user_screen.
 import 'package:fplboardman_admin/features/admin/presentation/auto_pools_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/dashboard_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/my_team_screen.dart';
-import 'package:fplboardman_admin/features/admin/presentation/pool_fees_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/pool_rules_screen.dart';
 import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
 import 'package:fplboardman_admin/features/auth/presentation/login_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -61,9 +61,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (_, state) => _page(state, const AutoPoolsScreen()),
           ),
           GoRoute(
-            path: '/pool-fees',
-            pageBuilder: (_, state) => _page(state, const PoolFeesScreen()),
+            path: '/pool-rules',
+            pageBuilder: (_, state) => _page(state, const PoolRulesScreen()),
           ),
+          // The page was called Pool fees before it also held the winners rule.
+          GoRoute(path: '/pool-fees', redirect: (_, _) => '/pool-rules'),
           GoRoute(
             path: '/users/:userId',
             pageBuilder: (_, state) => _page(
