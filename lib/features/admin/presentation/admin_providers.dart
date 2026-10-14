@@ -62,6 +62,25 @@ final adminWagerMembersProvider = FutureProvider.autoDispose
   (ref, poolId) => ref.watch(adminRepositoryProvider).wagerMembers(poolId),
 );
 
+/// One pool's page (see AdminRepository.pool).
+final adminPoolProvider = FutureProvider.autoDispose
+    .family<Map<String, Object?>, String>(
+  (ref, poolId) => ref.watch(adminRepositoryProvider).pool(poolId),
+);
+
+/// One gameweek's page (see AdminRepository.gameweek).
+final adminGameweekProvider = FutureProvider.autoDispose
+    .family<Map<String, Object?>, int>(
+  (ref, number) => ref.watch(adminRepositoryProvider).gameweek(number),
+);
+
+/// One account's ledger, newest first.
+final adminWalletTransactionsProvider = FutureProvider.autoDispose
+    .family<List<Map<String, Object?>>, String>(
+  (ref, userId) =>
+      ref.watch(adminRepositoryProvider).walletTransactions(userId),
+);
+
 final adminWalletProvider = FutureProvider.autoDispose
     .family<Map<String, Object?>, String>(
   (ref, userId) => ref.watch(adminRepositoryProvider).wallet(userId),
@@ -122,5 +141,14 @@ class AdminActionController extends AsyncNotifier<void> {
     ref.invalidate(adminCollectionProvider('audit-logs'));
     ref.invalidate(adminDashboardProvider);
     ref.invalidate(adminStatsProvider);
+    // The pages that show one record of these lists.
+    if (resources.contains('wagers')) {
+      ref.invalidate(adminPoolProvider);
+      ref.invalidate(adminGameweekProvider);
+    }
+    if (resources.contains('wallets') || resources.contains('transactions')) {
+      ref.invalidate(adminWalletProvider);
+      ref.invalidate(adminWalletTransactionsProvider);
+    }
   }
 }

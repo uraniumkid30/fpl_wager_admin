@@ -112,6 +112,18 @@ NavItem? navItemFor(String location) {
   if (location.startsWith('/users/')) {
     return allNavItems.firstWhere((item) => item.route == '/resources/users');
   }
+  // A pool's page, a gameweek's page and an account's transactions light up
+  // the list they were opened from.
+  const sections = {
+    '/pools/': '/resources/wagers',
+    '/gameweeks/': '/resources/gameweeks',
+    '/wallets/': '/resources/wallets',
+  };
+  for (final entry in sections.entries) {
+    if (location.startsWith(entry.key)) {
+      return allNavItems.where((item) => item.route == entry.value).firstOrNull;
+    }
+  }
   for (final item in allNavItems) {
     if (item.route == location) return item;
   }

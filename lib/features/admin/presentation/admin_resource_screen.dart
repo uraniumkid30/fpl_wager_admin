@@ -252,6 +252,15 @@ class _AdminResourceScreenState extends ConsumerState<AdminResourceScreen> {
       if (id != null) await context.push('/users/$id');
       return;
     }
+    // Pools and gameweeks have pages of their own.
+    if (resource == 'wagers' && record['id'] != null) {
+      await context.push('/pools/${record['id']}');
+      return;
+    }
+    if (resource == 'gameweeks' && record['number'] != null) {
+      await context.push('/gameweeks/${record['number']}');
+      return;
+    }
     final action = await showRecordPanel(
       context,
       resource: resource,

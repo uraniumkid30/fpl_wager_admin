@@ -6,6 +6,7 @@ import 'package:fplboardman_admin/core/ui/app_notice.dart';
 import 'package:fplboardman_admin/core/ui/app_widgets.dart';
 import 'package:fplboardman_admin/features/admin/presentation/admin_actions.dart';
 import 'package:fplboardman_admin/features/admin/presentation/admin_providers.dart';
+import 'package:go_router/go_router.dart';
 
 /// One thing that can be done to a record: a button on its detail panel.
 ///
@@ -100,6 +101,7 @@ RecordAction _action(
         'add' => Icons.add_rounded,
         'deduct' => Icons.remove_rounded,
         'delete' => Icons.delete_outline_rounded,
+        'transactions' => Icons.receipt_long_outlined,
         _ => Icons.chevron_right_rounded,
       },
       destructive: destructive,
@@ -117,9 +119,12 @@ List<RecordAction> actionsFor(String resource, Map<String, Object?> record) {
         if (status == 'locked' || status == 'scoring')
           _action('settle', 'Settle now', primary: true),
         _action('members', 'Entries'),
-        _action('edit', 'Edit'),
-        // A settled pool has paid out; its status is final.
-        if (status != 'settled') _action('status', 'Change status'),
+        // A cancelled pool has refunded everyone: it can no longer be
+        // edited or reopened. A settled pool has paid out; its status is
+        // final.
+        if (status != 'cancelled') _action('edit', 'Edit'),
+        if (status != 'settled' && status != 'cancelled')
+          _action('status', 'Change status'),
         _action('delete', 'Delete', destructive: true),
       ];
     case 'withdrawals':
@@ -143,6 +148,7 @@ List<RecordAction> actionsFor(String resource, Map<String, Object?> record) {
       ];
     case 'wallets':
       return [
+        _action('transactions', 'All transactions', primary: true),
         _action('add', 'Add money'),
         _action('deduct', 'Deduct money'),
       ];
@@ -258,6 +264,10 @@ Future<void> performRecordAction(
   }
 
   // ── Wallets ──────────────────────────────────────────────────────────
+  if (pressed == 'wallets/transactions') {
+    await context.push('/wallets/${record['user_id']}/transactions');
+    return;
+  }
   if (pressed == 'wallets/add' || pressed == 'wallets/deduct') {
     await adjustWalletDialog(
       context,
@@ -488,7 +498,7 @@ class _PoolEntriesDialog extends ConsumerWidget {
                               firstValue(member, const ['status']),
                               // Filled in when the pool is settled.
                               if (member['rank'] != null)
-                                '${_ordinal(member['rank'])} · ${member['points']} pts',
+                                '${ordinalOf(member['rank'])} · ${member['points']} pts',
                               if (member['payout_cents'] is num &&
                                   (member['payout_cents']! as num) > 0)
                                 'won ${moneyOf(member['payout_cents'])}',
@@ -546,7 +556,7 @@ class _PoolEntriesDialog extends ConsumerWidget {
 }
 
 /// "1st", "2nd", "11th" from a rank.
-String _ordinal(Object? rank) {
+String ordinalOf(Object? rank) {
   if (rank is! num) return '';
   final n = rank.toInt();
   final teen = n % 100 >= 11 && n % 100 <= 13;

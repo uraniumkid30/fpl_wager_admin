@@ -339,6 +339,20 @@ class _WalletPanel extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
+            const SizedBox(height: 14),
+            _Totals(wallet: balances ?? const {}),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () =>
+                    context.push('/wallets/${user.id}/transactions'),
+                icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                label: Text(
+                  'All transactions (${balances?['transactions'] ?? 0})',
+                ),
+              ),
+            ),
           ],
           const SizedBox(height: 16),
           Row(
@@ -377,6 +391,45 @@ class _WalletPanel extends ConsumerWidget {
             ],
           ),
         ],
+    );
+  }
+}
+
+/// Money in and out of the wallet, from its ledger.
+class _Totals extends StatelessWidget {
+  const _Totals({required this.wallet});
+  final Map<String, Object?> wallet;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    Widget cell(String label, String key) {
+      final value = wallet[key];
+      return SizedBox(
+        width: 150,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(color: muted, fontSize: 12.5)),
+            const SizedBox(height: 2),
+            Text(
+              value is num ? money(value.toInt()) : '—',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        cell('Total deposit', 'total_deposit_cents'),
+        cell('Total withdrawal', 'total_withdrawal_cents'),
+        cell('Total spent', 'total_spent_cents'),
+        cell('Total won', 'total_won_cents'),
+      ],
     );
   }
 }

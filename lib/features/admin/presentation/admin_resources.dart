@@ -28,13 +28,14 @@ const adminResources = <String, AdminResourceDefinition>{
     description: 'Approve, create, edit, settle, cancel and delete pools',
     icon: Icons.emoji_events_outlined,
     createLabel: 'Create pool',
-    note: 'Locked pools are settled and paid automatically once FPL '
+    note: 'Open a pool to see its entries, live positions, money and '
+        'winners. Locked pools are settled and paid automatically once FPL '
         'finalises the gameweek. Cancelling or deleting an unsettled pool '
         'refunds every entry.',
   ),
   'wallets': (
     label: 'Wallets',
-    description: 'Balances; add or deduct money',
+    description: 'Balances, money in and out; add or deduct money',
     icon: Icons.account_balance_wallet_outlined,
     createLabel: null,
     note: 'Every change is written to the ledger and the audit trail.',
@@ -98,10 +99,11 @@ const adminResources = <String, AdminResourceDefinition>{
   ),
   'gameweeks': (
     label: 'Gameweeks',
-    description: 'The FPL calendar, synced from FPL (read-only)',
+    description: 'The FPL calendar; each gameweek\'s pools, money and standings',
     icon: Icons.calendar_month_outlined,
     createLabel: null,
-    note: 'Gameweeks are kept in step with FPL by the scheduler.',
+    note: 'Gameweeks are kept in step with FPL by the scheduler. Open one to '
+        'see its pools, money and where every manager finished.',
   ),
   'fpl-logins': (
     label: 'FPL sign-ins',
@@ -112,9 +114,12 @@ const adminResources = <String, AdminResourceDefinition>{
   ),
   'audit-logs': (
     label: 'Audit trail',
-    description: 'Every administrator action (read-only)',
+    description: 'Everything done by administrators, managers and the system (read-only)',
     icon: Icons.verified_user_outlined,
     createLabel: null,
-    note: null,
+    note: 'System entries are what the platform did on its own: pools '
+        'locked, settled (with the winners) or cancelled, top-ups credited, '
+        'withdrawals completed. Manager entries are what users did to their '
+        'own pools and money.',
   ),
 };

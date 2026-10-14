@@ -173,8 +173,15 @@ final Map<String, ResourceView> resourceViews = {
   'wallets': ResourceView(
     columns: [
       ColumnSpec('full_name', 'User', primary: true, width: 240, flex: 3, secondary: _email),
-      const ColumnSpec('available_cents', 'Available', kind: CellKind.money, width: 150),
-      const ColumnSpec('locked_cents', 'Locked in games', kind: CellKind.money, width: 150),
+      const ColumnSpec('available_cents', 'Available', kind: CellKind.money, width: 140),
+      const ColumnSpec('locked_cents', 'Locked in games', kind: CellKind.money, width: 140),
+      const ColumnSpec('total_deposit_cents', 'Total deposit', kind: CellKind.money, width: 140),
+      const ColumnSpec('total_withdrawal_cents', 'Total withdrawal', kind: CellKind.money, width: 150),
+      const ColumnSpec('total_spent_cents', 'Total spent', kind: CellKind.money, width: 130),
+      const ColumnSpec('total_won_cents', 'Total won', kind: CellKind.money, width: 130),
+      const ColumnSpec('total_fees_cents', 'Fees paid', kind: CellKind.money, width: 120, hidden: true),
+      const ColumnSpec('total_adjustments_cents', 'Admin adjustments', kind: CellKind.signedMoney, width: 160, hidden: true),
+      const ColumnSpec('transactions', 'Transactions', kind: CellKind.number, width: 120, hidden: true),
       const ColumnSpec('updated_at', 'Last change', kind: CellKind.date, width: 170),
     ],
   ),
@@ -347,7 +354,8 @@ final Map<String, ResourceView> resourceViews = {
   'audit-logs': ResourceView(
     columns: [
       const ColumnSpec('action', 'Action', kind: CellKind.code, primary: true, width: 230, flex: 2),
-      const ColumnSpec('admin_name', 'Administrator', width: 180, flex: 1),
+      const ColumnSpec('admin_name', 'Done by', width: 190, flex: 1),
+      const ColumnSpec('actor_type', 'Actor', kind: CellKind.tag, width: 110),
       ColumnSpec(
         'resource_id',
         'Record',
@@ -361,12 +369,14 @@ final Map<String, ResourceView> resourceViews = {
     ],
     filters: const [
       FieldSpec('action', 'Action'),
-      FieldSpec('admin_name', 'Administrator'),
+      FieldSpec('actor_type', 'Actor'),
+      FieldSpec('admin_name', 'Done by'),
       FieldSpec('resource_type', 'Record type'),
     ],
     groups: const [
       FieldSpec('action', 'Action'),
-      FieldSpec('admin_name', 'Administrator'),
+      FieldSpec('actor_type', 'Actor'),
+      FieldSpec('admin_name', 'Done by'),
       FieldSpec('resource_type', 'Record type'),
     ],
   ),

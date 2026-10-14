@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fplboardman_admin/app/shell/admin_shell.dart';
 import 'package:fplboardman_admin/app/theme/app_theme.dart';
 import 'package:fplboardman_admin/core/ui/app_widgets.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_gameweek_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/admin_pool_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/admin_resource_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/admin_user_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/auto_pools_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/dashboard_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/my_team_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/pool_rules_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/wallet_transactions_screen.dart';
 import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
 import 'package:fplboardman_admin/features/auth/presentation/login_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -71,6 +74,33 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (_, state) => _page(
               state,
               AdminUserScreen(userId: state.pathParameters['userId']!),
+            ),
+          ),
+          // One pool: entries, live or final positions, money, winners.
+          GoRoute(
+            path: '/pools/:poolId',
+            pageBuilder: (_, state) => _page(
+              state,
+              AdminPoolScreen(poolId: state.pathParameters['poolId']!),
+            ),
+          ),
+          // One gameweek: its pools, money and every manager's position.
+          GoRoute(
+            path: '/gameweeks/:number',
+            pageBuilder: (_, state) => _page(
+              state,
+              AdminGameweekScreen(
+                key: ValueKey('gameweek-${state.pathParameters['number']}'),
+                number: int.tryParse(state.pathParameters['number']!) ?? 1,
+              ),
+            ),
+          ),
+          // One account's ledger.
+          GoRoute(
+            path: '/wallets/:userId/transactions',
+            pageBuilder: (_, state) => _page(
+              state,
+              WalletTransactionsScreen(userId: state.pathParameters['userId']!),
             ),
           ),
           GoRoute(

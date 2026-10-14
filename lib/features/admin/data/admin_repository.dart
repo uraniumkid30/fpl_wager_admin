@@ -245,9 +245,37 @@ class AdminRepository {
     );
   }
 
-  /// One user's wallet: balances and their recent ledger.
+  /// One user's wallet: balances and their money in and out
+  /// (total_deposit_cents, total_withdrawal_cents, total_spent_cents,
+  /// total_won_cents, total_fees_cents, total_adjustments_cents).
   Future<Map<String, Object?>> wallet(String userId) =>
       _client.get('/admin/wallets/$userId');
+
+  /// Every ledger entry of one account, newest first.
+  Future<List<Map<String, Object?>>> walletTransactions(String userId) async {
+    final all = <Map<String, Object?>>[];
+    for (var page = 1; all.length < maxRows; page++) {
+      final items = _items(
+        await _client.get(
+          '/admin/wallets/$userId/transactions',
+          query: {'page': page, 'per_page': _pageSize},
+        ),
+      );
+      all.addAll(items);
+      if (items.length < _pageSize) break;
+    }
+    return all;
+  }
+
+  /// One pool: its settings, finances (entries, staked, house cut, prize
+  /// pool, paid out, winners), every entry with its live or final position,
+  /// and its prize plan.
+  Future<Map<String, Object?>> pool(String id) =>
+      _client.get('/admin/wagers/$id');
+
+  /// One gameweek: summary, pools played and every manager's result.
+  Future<Map<String, Object?>> gameweek(int number) =>
+      _client.get('/admin/gameweeks/$number');
 
   // ── Withdrawals ────────────────────────────────────────────────────────
 
