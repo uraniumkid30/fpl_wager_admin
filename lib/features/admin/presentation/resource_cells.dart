@@ -66,9 +66,22 @@ class CellView extends StatelessWidget {
           ),
         );
       case CellKind.money:
+        // Money coming in is green, money going out red (when the column
+        // says which it is and there is something to show).
+        final amount = value is num ? value : 0;
+        final flowTone = amount == 0
+            ? null
+            : switch (column.flow) {
+                MoneyFlow.incoming => Tone.success,
+                MoneyFlow.outgoing => Tone.danger,
+                MoneyFlow.none => null,
+              };
         return plain(
           text,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: flowTone == null ? null : toneColor(context, flowTone),
+          ),
         );
       case CellKind.signedMoney:
         final negative = value is num && value < 0;

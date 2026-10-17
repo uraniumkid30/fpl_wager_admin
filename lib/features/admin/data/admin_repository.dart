@@ -94,9 +94,19 @@ class AdminRepository {
     await _client.put('/admin/auto-pools/status', data: {'enabled': enabled});
   }
 
-  /// Adds a stake at which an auto pool is offered every gameweek.
-  Future<void> createAutoPoolTier(int stakeCents) async {
-    await _client.post('/admin/auto-pools', data: {'stake_cents': stakeCents});
+  /// Adds a stake at which an auto pool is offered every gameweek, with the
+  /// name its pools carry ("Novice" → "GW7 Auto Pool - Novice").
+  Future<void> createAutoPoolTier(int stakeCents, {String name = ''}) async {
+    await _client.post(
+      '/admin/auto-pools',
+      data: {'stake_cents': stakeCents, 'name': name},
+    );
+  }
+
+  /// Renames a stake's auto pools. Its open pool is renamed straight away;
+  /// pools already played keep their name. An empty name shows the stake.
+  Future<void> renameAutoPoolTier(String id, String name) async {
+    await _client.patch('/admin/auto-pools/$id', data: {'name': name});
   }
 
   /// Pauses or resumes one stake. Paused, its open pool carries on but no

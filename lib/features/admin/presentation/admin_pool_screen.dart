@@ -181,6 +181,9 @@ class AdminPoolScreen extends ConsumerWidget {
                   StatCard(
                     label: 'Paid out',
                     value: settled ? moneyOf(finances['paid_out_cents']) : '—',
+                    valueColor: settled && _int(finances['paid_out_cents']) > 0
+                        ? toneColor(context, Tone.success)
+                        : null,
                     icon: Icons.north_east_rounded,
                     tone: Tone.success,
                     caption: settled ? 'to the winners\' wallets' : 'paid when settled',

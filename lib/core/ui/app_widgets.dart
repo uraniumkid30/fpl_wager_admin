@@ -14,6 +14,13 @@ String money(int cents) => NumberFormat.currency(
       decimalDigits: 2,
     ).format(cents / 100);
 
+/// An amount with its direction, spaced so the sign stands apart:
+/// "+ ₦300.00" coming in, "− ₦300.00" going out.
+String signedMoney(int cents) {
+  if (cents == 0) return money(0);
+  return '${cents > 0 ? '+' : '−'} ${money(cents.abs())}';
+}
+
 /// "₦1.2M", "₦45K" — for chart axes and other tight spaces.
 String compactMoney(int cents) {
   final naira = cents / 100;

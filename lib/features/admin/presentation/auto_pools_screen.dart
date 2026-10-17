@@ -120,6 +120,7 @@ class AutoPoolsScreen extends ConsumerWidget {
                       busy: busy,
                       onToggle: (next) => _setTier(context, ref, tier, next),
                       onDelete: () => _delete(context, ref, tier),
+                      onRename: () => _rename(context, ref, tier),
                       onViewPools: () => context.go('/resources/wagers'),
                     ),
                   ),
@@ -181,8 +182,79 @@ class AutoPoolsScreen extends ConsumerWidget {
     if (context.mounted) ref.invalidate(adminAutoPoolsProvider);
   }
 
+  Future<void> _rename(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, Object?> tier,
+  ) async {
+    final name = TextEditingController(text: '${tier['name'] ?? ''}');
+    final stake = _stake(tier);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Name the $stake auto pool'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Its pools are called "GW7 Auto Pool - <name>". The pool open '
+                'now is renamed straight away; pools already played keep '
+                'their name.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: name,
+                autofocus: true,
+                maxLength: 30,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  hintText: 'Novice',
+                  helperText: 'Leave empty to show the stake instead',
+                  prefixIcon: Icon(Icons.label_outline_rounded),
+                ),
+                onSubmitted: (_) => Navigator.pop(context, true),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final typed = name.text.trim();
+    disposeAfterDialog([name]);
+    if (accepted != true || !context.mounted) return;
+    if (typed.isNotEmpty && typed.length < 2) {
+      AppNotice.error(context, 'The name must be 2 to 30 characters.');
+      return;
+    }
+    await runAdminAction(
+      context,
+      ref,
+      action: (repository) => repository.renameAutoPoolTier('${tier['id']}', typed),
+      refresh: _affected,
+      success: typed.isEmpty
+          ? 'The $stake auto pool shows its stake again.'
+          : 'The $stake auto pool is now called $typed.',
+    );
+    if (context.mounted) ref.invalidate(adminAutoPoolsProvider);
+  }
+
   Future<void> _add(BuildContext context, WidgetRef ref) async {
     final amount = TextEditingController();
+    final name = TextEditingController();
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -208,6 +280,18 @@ class AutoPoolsScreen extends ConsumerWidget {
                   helperText: 'Whole naira, from ₦100 to ₦1,000,000',
                   prefixIcon: Icon(Icons.payments_outlined),
                 ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: name,
+                maxLength: 30,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  hintText: 'Novice, Professional, Expert…',
+                  helperText: 'Pools are called "GW7 Auto Pool - <name>"',
+                  prefixIcon: Icon(Icons.label_outline_rounded),
+                ),
                 onSubmitted: (_) => Navigator.pop(context, true),
               ),
             ],
@@ -226,7 +310,8 @@ class AutoPoolsScreen extends ConsumerWidget {
       ),
     );
     final typed = amount.text.replaceAll(',', '').trim();
-    disposeAfterDialog([amount]);
+    final typedName = name.text.trim();
+    disposeAfterDialog([amount, name]);
     if (accepted != true || !context.mounted) return;
     final naira = int.tryParse(typed);
     if (naira == null || naira < 100 || naira > 1000000) {
@@ -239,9 +324,12 @@ class AutoPoolsScreen extends ConsumerWidget {
     await runAdminAction(
       context,
       ref,
-      action: (repository) => repository.createAutoPoolTier(naira * 100),
+      action: (repository) =>
+          repository.createAutoPoolTier(naira * 100, name: typedName),
       refresh: _affected,
-      success: 'The ${money(naira * 100)} auto pool was added.',
+      success: typedName.isEmpty
+          ? 'The ${money(naira * 100)} auto pool was added.'
+          : 'The ${money(naira * 100)} auto pool "$typedName" was added.',
     );
     // The page may have been left while the request was in flight.
     if (context.mounted) ref.invalidate(adminAutoPoolsProvider);
@@ -366,6 +454,7 @@ class _TierCard extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
     required this.onViewPools,
+    required this.onRename,
   });
 
   final Map<String, Object?> tier;
@@ -377,11 +466,13 @@ class _TierCard extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
   final VoidCallback onViewPools;
+  final VoidCallback onRename;
 
   @override
   Widget build(BuildContext context) {
     final palette = Palette.of(context);
     final on = tier['enabled'] == true;
+    final name = '${tier['name'] ?? ''}'.trim();
     final openName = tier['open_pool_name'];
     final entries = (tier['open_pool_entries'] as num? ?? 0).toInt();
     final gameweek = tier['open_pool_gameweek'];
@@ -401,7 +492,7 @@ class _TierCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  _stake(tier),
+                  name.isEmpty ? _stake(tier) : name,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
               ),
@@ -409,13 +500,29 @@ class _TierCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 2),
-          Text('to enter', style: TextStyle(color: palette.muted, fontSize: 12.5)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name.isEmpty
+                      ? 'to enter · no name yet'
+                      : '${_stake(tier)} to enter',
+                  style: TextStyle(color: palette.muted, fontSize: 12.5),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: busy ? null : onRename,
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: Text(name.isEmpty ? 'Name it' : 'Rename'),
+              ),
+            ],
+          ),
           const SizedBox(height: 14),
           _Fact(
             icon: Icons.emoji_events_outlined,
             text: openName == null
                 ? 'No pool open right now'
-                : 'Open now: Gameweek $gameweek · $entries '
+                : 'Open now: $openName · $entries '
                     '${entries == 1 ? 'entry' : 'entries'}',
           ),
           const SizedBox(height: 6),

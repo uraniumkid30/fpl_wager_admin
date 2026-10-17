@@ -158,9 +158,7 @@ class _WalletTransactionsScreenState
                               final amount = entry['amount_cents'];
                               final positive = amount is num && amount > 0;
                               return Text(
-                                amount is num
-                                    ? '${positive ? '+' : '−'}${moneyOf(amount.abs())}'
-                                    : '',
+                                amount is num ? signedMoney(amount.toInt()) : '',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: positive
@@ -206,18 +204,21 @@ class WalletTotals extends StatelessWidget {
             value: moneyOf(wallet['total_deposit_cents']),
             icon: Icons.south_west_rounded,
             tone: Tone.success,
+            valueColor: _flowColor(context, wallet['total_deposit_cents'], incoming: true),
           ),
           StatCard(
             label: 'Total withdrawal',
             value: moneyOf(wallet['total_withdrawal_cents']),
             icon: Icons.north_east_rounded,
-            tone: Tone.warning,
+            tone: Tone.danger,
+            valueColor: _flowColor(context, wallet['total_withdrawal_cents'], incoming: false),
           ),
           StatCard(
             label: 'Total spent',
             value: moneyOf(wallet['total_spent_cents']),
             icon: Icons.sports_soccer_rounded,
-            tone: Tone.info,
+            tone: Tone.danger,
+            valueColor: _flowColor(context, wallet['total_spent_cents'], incoming: false),
             caption: 'stakes, less refunds',
           ),
           StatCard(
@@ -225,6 +226,7 @@ class WalletTotals extends StatelessWidget {
             value: moneyOf(wallet['total_won_cents']),
             icon: Icons.emoji_events_outlined,
             tone: Tone.success,
+            valueColor: _flowColor(context, wallet['total_won_cents'], incoming: true),
           ),
           StatCard(
             label: 'Transactions',
@@ -246,3 +248,9 @@ class WalletTotals extends StatelessWidget {
 
 String? _joinOrNull(List<String> parts) =>
     parts.isEmpty ? null : parts.join(' · ');
+
+/// Green for money coming in, red for money going out; nothing for zero.
+Color? _flowColor(BuildContext context, Object? cents, {required bool incoming}) {
+  if (cents is! num || cents == 0) return null;
+  return toneColor(context, incoming ? Tone.success : Tone.danger);
+}

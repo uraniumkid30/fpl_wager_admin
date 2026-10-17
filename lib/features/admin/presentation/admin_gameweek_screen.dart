@@ -102,6 +102,7 @@ class AdminGameweekScreen extends ConsumerWidget {
                   StatCard(
                     label: 'Paid to winners',
                     value: moneyOf(paid),
+                    valueColor: paid > 0 ? toneColor(context, Tone.success) : null,
                     icon: Icons.north_east_rounded,
                     tone: Tone.success,
                     caption: '${_count(summary['winners'])} winning entries',
@@ -239,7 +240,14 @@ class AdminGameweekScreen extends ConsumerWidget {
                                 ),
                                 DataCell(Text(row['points'] is num ? '${row['points']}' : '—')),
                                 DataCell(Text(_count(row['pools_entered']))),
-                                DataCell(Text(moneyOf(row['staked_cents']))),
+                                DataCell(Text(
+                                  moneyOf(row['staked_cents']),
+                                  style: TextStyle(
+                                    color: _int(row['staked_cents']) > 0
+                                        ? toneColor(context, Tone.danger)
+                                        : null,
+                                  ),
+                                )),
                                 DataCell(Text(
                                   moneyOf(row['won_cents']),
                                   style: TextStyle(
@@ -248,7 +256,18 @@ class AdminGameweekScreen extends ConsumerWidget {
                                         : null,
                                   ),
                                 )),
-                                DataCell(Text(_signed(row['net_cents']))),
+                                DataCell(Text(
+                                  _signed(row['net_cents']),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: _int(row['net_cents']) == 0
+                                        ? null
+                                        : toneColor(
+                                            context,
+                                            _int(row['net_cents']) > 0 ? Tone.success : Tone.danger,
+                                          ),
+                                  ),
+                                )),
                               ],
                             ),
                         ],
@@ -279,7 +298,7 @@ String _count(Object? value) =>
 
 String _signed(Object? cents) {
   final value = _int(cents);
-  return '${value < 0 ? '−' : '+'}${moneyOf(value.abs())}';
+  return signedMoney(value);
 }
 
 String? _joinOrNull(List<String> parts) =>

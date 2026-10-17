@@ -403,8 +403,11 @@ class _Totals extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    Widget cell(String label, String key) {
+    Widget cell(String label, String key, {required bool incoming}) {
       final value = wallet[key];
+      final color = value is num && value != 0
+          ? toneColor(context, incoming ? Tone.success : Tone.danger)
+          : null;
       return SizedBox(
         width: 150,
         child: Column(
@@ -414,7 +417,7 @@ class _Totals extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               value is num ? money(value.toInt()) : '—',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(fontWeight: FontWeight.w700, color: color),
             ),
           ],
         ),
@@ -425,10 +428,10 @@ class _Totals extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: [
-        cell('Total deposit', 'total_deposit_cents'),
-        cell('Total withdrawal', 'total_withdrawal_cents'),
-        cell('Total spent', 'total_spent_cents'),
-        cell('Total won', 'total_won_cents'),
+        cell('Total deposit', 'total_deposit_cents', incoming: true),
+        cell('Total withdrawal', 'total_withdrawal_cents', incoming: false),
+        cell('Total spent', 'total_spent_cents', incoming: false),
+        cell('Total won', 'total_won_cents', incoming: true),
       ],
     );
   }

@@ -186,11 +186,15 @@ class StatCard extends StatelessWidget {
     this.tone = Tone.accent,
     this.trend,
     this.onTap,
+    this.valueColor,
   });
 
   final String label;
   final String value;
   final IconData icon;
+
+  /// Colours the value itself: green for money in, red for money out.
+  final Color? valueColor;
 
   /// A short line under the value, e.g. "+4 this week".
   final String? caption;
@@ -254,6 +258,7 @@ class StatCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                               fontSize: 26,
                               fontWeight: FontWeight.w700,
+                              color: valueColor,
                             ),
                       ),
                     ),

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:fplboardman_admin/core/ui/app_widgets.dart';
 import 'package:fplboardman_admin/core/ui/ui_kit.dart';
 import 'package:fplboardman_admin/features/admin/presentation/record_actions.dart';
 import 'package:intl/intl.dart';
@@ -29,6 +30,9 @@ enum CellKind {
   code,
 }
 
+/// Which way a money column's amounts move, for its colour.
+enum MoneyFlow { none, incoming, outgoing }
+
 /// One column of a list page.
 class ColumnSpec {
   const ColumnSpec(
@@ -41,7 +45,12 @@ class ColumnSpec {
     this.hidden = false,
     this.read,
     this.secondary,
+    this.flow = MoneyFlow.none,
   });
+
+  /// For a money column: whether it is money coming in (green) or going
+  /// out (red).
+  final MoneyFlow flow;
 
   /// The field in the record, and the column's identity for sorting and
   /// hiding.
@@ -175,11 +184,11 @@ final Map<String, ResourceView> resourceViews = {
       ColumnSpec('full_name', 'User', primary: true, width: 240, flex: 3, secondary: _email),
       const ColumnSpec('available_cents', 'Available', kind: CellKind.money, width: 140),
       const ColumnSpec('locked_cents', 'Locked in games', kind: CellKind.money, width: 140),
-      const ColumnSpec('total_deposit_cents', 'Total deposit', kind: CellKind.money, width: 140),
-      const ColumnSpec('total_withdrawal_cents', 'Total withdrawal', kind: CellKind.money, width: 150),
-      const ColumnSpec('total_spent_cents', 'Total spent', kind: CellKind.money, width: 130),
-      const ColumnSpec('total_won_cents', 'Total won', kind: CellKind.money, width: 130),
-      const ColumnSpec('total_fees_cents', 'Fees paid', kind: CellKind.money, width: 120, hidden: true),
+      const ColumnSpec('total_deposit_cents', 'Total deposit', kind: CellKind.money, width: 140, flow: MoneyFlow.incoming),
+      const ColumnSpec('total_withdrawal_cents', 'Total withdrawal', kind: CellKind.money, width: 150, flow: MoneyFlow.outgoing),
+      const ColumnSpec('total_spent_cents', 'Total spent', kind: CellKind.money, width: 130, flow: MoneyFlow.outgoing),
+      const ColumnSpec('total_won_cents', 'Total won', kind: CellKind.money, width: 130, flow: MoneyFlow.incoming),
+      const ColumnSpec('total_fees_cents', 'Fees paid', kind: CellKind.money, width: 120, hidden: true, flow: MoneyFlow.outgoing),
       const ColumnSpec('total_adjustments_cents', 'Admin adjustments', kind: CellKind.signedMoney, width: 160, hidden: true),
       const ColumnSpec('transactions', 'Transactions', kind: CellKind.number, width: 120, hidden: true),
       const ColumnSpec('updated_at', 'Last change', kind: CellKind.date, width: 170),
@@ -393,7 +402,7 @@ String cellText(ColumnSpec column, Map<String, Object?> record) {
   return switch (column.kind) {
     CellKind.money => moneyOf(value),
     CellKind.signedMoney => value is num
-        ? '${value < 0 ? '−' : '+'}${moneyOf(value.abs())}'
+        ? signedMoney(value.toInt())
         : '',
     CellKind.date => formatDateTime(value),
     CellKind.flag => value == true ? 'Yes' : 'No',
