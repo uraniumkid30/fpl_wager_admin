@@ -168,6 +168,46 @@ class AdminRepository {
     );
   }
 
+  // ── Payment provider ───────────────────────────────────────────────────
+
+  /// Which provider takes top-ups (Zenith GlobalPay or Paystack), and which
+  /// of them this server has keys for.
+  Future<Map<String, Object?>> paymentSettings() =>
+      _client.get('/admin/payment-settings');
+
+  /// Sends every top-up from now on through [provider] ("globalpay" or
+  /// "paystack"). Payments already started finish with their own provider.
+  Future<void> setDepositProvider(String provider) async {
+    await _client.put(
+      '/admin/payment-settings',
+      data: {'deposit_provider': provider},
+    );
+  }
+
+  // ── Campaigns ──────────────────────────────────────────────────────────
+
+  /// Every campaign (live first), for the Campaigns page.
+  Future<List<Map<String, Object?>>> campaigns() async {
+    final body = await _client.get('/admin/campaigns');
+    final items = body['items'];
+    return items is List
+        ? [for (final item in items) if (item is Map) Map<String, Object?>.from(item)]
+        : const [];
+  }
+
+  Future<void> createCampaign(Map<String, Object?> values) async {
+    await _client.post('/admin/campaigns', data: values);
+  }
+
+  /// Changes only the fields in [changes].
+  Future<void> updateCampaign(String id, Map<String, Object?> changes) async {
+    await _client.patch('/admin/campaigns/$id', data: changes);
+  }
+
+  Future<void> deleteCampaign(String id) async {
+    await _client.delete('/admin/campaigns/$id');
+  }
+
   // ── Users ──────────────────────────────────────────────────────────────
 
   Future<UserProfile> user(String id) async =>

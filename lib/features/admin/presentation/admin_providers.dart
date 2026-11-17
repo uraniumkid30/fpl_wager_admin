@@ -34,6 +34,18 @@ final adminPoolRulesProvider = FutureProvider.autoDispose<PoolRules>(
   (ref) => ref.watch(adminRepositoryProvider).poolRules(),
 );
 
+/// The top-up provider choice and which providers have keys.
+final adminPaymentSettingsProvider =
+    FutureProvider.autoDispose<Map<String, Object?>>(
+  (ref) => ref.watch(adminRepositoryProvider).paymentSettings(),
+);
+
+/// Every marketing campaign (the Royal Rumble and those after it).
+final adminCampaignsProvider =
+    FutureProvider.autoDispose<List<Map<String, Object?>>>(
+  (ref) => ref.watch(adminRepositoryProvider).campaigns(),
+);
+
 /// What is waiting for an administrator: custom pools to approve and
 /// withdrawal requests to approve or reject.
 final attentionProvider =

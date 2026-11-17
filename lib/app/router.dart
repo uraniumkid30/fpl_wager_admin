@@ -8,8 +8,10 @@ import 'package:fplboardman_admin/features/admin/presentation/admin_pool_screen.
 import 'package:fplboardman_admin/features/admin/presentation/admin_resource_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/admin_user_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/auto_pools_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/campaigns_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/dashboard_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/my_team_screen.dart';
+import 'package:fplboardman_admin/features/admin/presentation/payment_settings_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/pool_rules_screen.dart';
 import 'package:fplboardman_admin/features/admin/presentation/wallet_transactions_screen.dart';
 import 'package:fplboardman_admin/features/auth/presentation/auth_controller.dart';
@@ -66,6 +68,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/pool-rules',
             pageBuilder: (_, state) => _page(state, const PoolRulesScreen()),
+          ),
+          GoRoute(
+            path: '/payment-settings',
+            pageBuilder: (_, state) =>
+                _page(state, const PaymentSettingsScreen()),
+          ),
+          GoRoute(
+            path: '/campaigns',
+            pageBuilder: (_, state) => _page(state, const CampaignsScreen()),
           ),
           // The page was called Pool fees before it also held the winners rule.
           GoRoute(path: '/pool-fees', redirect: (_, _) => '/pool-rules'),

@@ -80,9 +80,26 @@ final List<NavGroup> adminNavigation = [
     title: 'Money',
     items: [
       _resource('withdrawals', badge: 'withdrawals', keywords: 'payout bank'),
-      _resource('payments', keywords: 'top up deposit paystack korapay'),
+      const NavItem(
+        label: 'Payment provider',
+        icon: Icons.account_balance_rounded,
+        route: '/payment-settings',
+        keywords: 'globalpay zenith paystack top up deposit switch gateway',
+      ),
+      _resource('payments', keywords: 'top up deposit paystack korapay globalpay zenith'),
       _resource('wallets', keywords: 'balance'),
       _resource('transactions', keywords: 'ledger history'),
+    ],
+  ),
+  const NavGroup(
+    title: 'Marketing',
+    items: [
+      NavItem(
+        label: 'Campaigns',
+        icon: Icons.campaign_outlined,
+        route: '/campaigns',
+        keywords: 'royal rumble banner promo promotion marketing home pools',
+      ),
     ],
   ),
   NavGroup(
